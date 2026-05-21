@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -228,6 +229,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="Scan only these folder names. Repeat for multiple projects.",
     )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open reports/index.md when finished (no prompt).",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not offer to open reports/index.md when finished.",
+    )
 
     llm = parser.add_argument_group("LLM enrichment (optional)")
     llm.add_argument(
@@ -270,6 +281,33 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def open_path(path: Path) -> None:
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+        return
+    if sys.platform.startswith("linux"):
+        subprocess.run(["xdg-open", str(path)], check=False)
+        return
+    print(f"Open manually: {path}")
+
+
+def maybe_open_index(index_path: Path, *, open_now: bool, no_open: bool) -> None:
+    if no_open or not index_path.is_file():
+        return
+    if open_now:
+        open_path(index_path)
+        return
+    if not sys.stdin.isatty():
+        return
+    try:
+        answer = input(f"Open {index_path}? [Enter to open, n to skip] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if answer in ("", "y", "yes"):
+        open_path(index_path)
+
+
 def main() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
@@ -285,7 +323,9 @@ def main() -> None:
     write_reports(reports, source_dir, output_dir)
 
     print(f"Wrote {len(reports)} project briefs to {output_dir}")
-    print(f"Open {output_dir / 'index.md'} for the rollup summary.")
+    index_path = output_dir / "index.md"
+    print(f"Summary: {index_path}")
+    maybe_open_index(index_path, open_now=args.open, no_open=args.no_open)
 
 
 def analyze_projects(source_dir: Path, limit: int | None, include: list[str]) -> list[ProjectReport]:
@@ -933,15 +973,27 @@ def render_index_markdown(reports: list[ProjectReport], source_dir: Path) -> str
         "",
         "Each project gets its own layered brief under `projects/`.",
         "",
-        "## Summary Table",
+        "## Projects",
         "",
-        "| Project | One-line read | Current state | Similar projects |",
-        "|---|---|---|---|",
     ]
+    for report in reports:
+        slug = slugify(report.name)
+        lines.append(f"- [{report.name}](projects/{slug}.md)")
+    lines.extend(
+        [
+            "",
+            "## Summary Table",
+            "",
+            "Use the list above to open briefs — table links often fail in Markdown preview apps.",
+            "",
+            "| Project | One-line read | Current state | Similar projects |",
+            "|---|---|---|---|",
+        ]
+    )
     for report in reports:
         similar = ", ".join(item.name for item in report.similar_projects) or "None yet"
         lines.append(
-            f"| [{report.name}](projects/{slugify(report.name)}.md) | {escape_pipes(report.one_liner)} | "
+            f"| {escape_pipes(report.name)} | {escape_pipes(report.one_liner)} | "
             f"{escape_pipes(report.current_state)} | {escape_pipes(similar)} |"
         )
     return "\n".join(lines) + "\n"
