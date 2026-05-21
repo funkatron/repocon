@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from repocon.analyzer import INDEX_NOTE_TITLE
+from repocon.analyzer import INDEX_NOTE_TITLE, slugify
 
 BEAR_NOTE_DELAY_S = 0.3
 BEAR_REGISTRY_NAME = ".repocon-bear.json"
@@ -191,6 +191,7 @@ def sync_bear_note(
 def export_reports_to_bear(
     output_dir: Path,
     *,
+    report_names: list[str] | None = None,
     open_index: bool = True,
     mode: BearExportMode = "upsert",
 ) -> BearExportResult:
@@ -202,11 +203,14 @@ def export_reports_to_bear(
     if not projects_dir.is_dir():
         raise RuntimeError(f"No projects/ directory under {output_dir}")
 
+    allowed_slugs = {slugify(name) for name in report_names} if report_names else None
     tags = get_bear_tags()
     known_titles = load_bear_registry(output_dir)
     result = BearExportResult()
 
     for brief_path in sorted(projects_dir.glob("*.md")):
+        if allowed_slugs is not None and brief_path.stem not in allowed_slugs:
+            continue
         title = note_title_from_markdown(brief_path)
         body = brief_path.read_text(encoding="utf-8")
         action = sync_bear_note(

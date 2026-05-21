@@ -151,6 +151,34 @@ def test_export_reports_to_bear_second_run_updates(
     mock_create.assert_not_called()
 
 
+@patch("repocon.bear_export.sync_bear_note")
+@patch("repocon.bear_export.time.sleep")
+@patch("sys.platform", "darwin")
+def test_export_reports_to_bear_only_syncs_named_reports(
+    _sleep: object,
+    mock_sync: object,
+    tmp_path: Path,
+) -> None:
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    (projects / "repocon.md").write_text("# repocon\n\nBrief\n", encoding="utf-8")
+    (projects / "now-playing.md").write_text("# now-playing\n\nOther\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text("# Project Briefs\n", encoding="utf-8")
+    mock_sync.return_value = "updated"
+
+    result = export_reports_to_bear(
+        tmp_path,
+        report_names=["repocon"],
+        open_index=False,
+        mode="upsert",
+    )
+
+    assert result.total == 2
+    assert mock_sync.call_count == 2
+    assert mock_sync.call_args_list[0].args[0] == "repocon"
+    assert mock_sync.call_args_list[1].args[0] == "Project Briefs"
+
+
 @patch("sys.platform", "linux")
 def test_export_reports_to_bear_requires_macos() -> None:
     with pytest.raises(RuntimeError, match="macOS"):

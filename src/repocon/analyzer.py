@@ -587,6 +587,7 @@ def main() -> None:
 
         bear_result = export_reports_to_bear(
             output_dir,
+            report_names=[report.name for report in reports],
             open_index=not args.no_open,
             mode=args.bear_mode,
         )
@@ -1308,6 +1309,14 @@ def write_reports(
     facts_dir = output_dir / "facts"
     reports_dir.mkdir(parents=True, exist_ok=True)
     facts_dir.mkdir(parents=True, exist_ok=True)
+
+    current_slugs = {slugify(report.name) for report in reports}
+    for stale in reports_dir.glob("*.md"):
+        if stale.stem not in current_slugs:
+            stale.unlink()
+    for stale in facts_dir.glob("*.json"):
+        if stale.stem not in current_slugs:
+            stale.unlink()
 
     index_path = (output_dir / "index.md").resolve()
 
