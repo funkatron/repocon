@@ -304,7 +304,10 @@ def open_path(path: Path) -> None:
         subprocess.run(["open", str(path)], check=False)
         return
     if sys.platform.startswith("linux"):
-        subprocess.run(["xdg-open", str(path)], check=False)
+        if shutil_which("xdg-open"):
+            subprocess.run(["xdg-open", str(path)], check=False)
+            return
+        print(f"Open manually: {path}")
         return
     print(f"Open manually: {path}")
 
