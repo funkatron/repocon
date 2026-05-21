@@ -21,6 +21,10 @@ DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct"
 MARKED_PREVIEW_STYLE = "GitHub"
 MARKED_PROCESSOR = "commonmark"
+INDEX_NOTE_TITLE = "Project Briefs"
+LINK_STYLE_BEAR = "bear"
+LINK_STYLE_MARKED = "marked"
+DEFAULT_LINK_STYLE = LINK_STYLE_BEAR
 
 NOISE_DIRS = {
     ".git",
@@ -431,6 +435,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="Scan only these folder names. Repeat for multiple projects.",
     )
+    scan.add_argument(
+        "--link-style",
+        choices=(LINK_STYLE_BEAR, LINK_STYLE_MARKED),
+        default=DEFAULT_LINK_STYLE,
+        help=(
+            "Inter-note link format in Markdown output (default: %(default)s). "
+            "bear uses [[Note Title]] links for Bear.app (same pattern as infomux store_bear). "
+            "marked uses absolute file paths for Marked preview."
+        ),
+    )
     parser.add_argument(
         "--open",
         action="store_true",
@@ -538,7 +552,7 @@ def main() -> None:
     reports = analyze_projects(source_dir, limit=args.limit, include=args.project)
     enrich_similarity(reports)
     apply_llm_enrichment(reports, llm_config)
-    write_reports(reports, source_dir, output_dir)
+    write_reports(reports, source_dir, output_dir, link_style=args.link_style)
 
     print(f"Wrote {len(reports)} project briefs to {output_dir}")
     index_path = output_dir / "index.md"
@@ -1163,21 +1177,51 @@ def apply_llm_enrichment(reports: list[ProjectReport], config: LLMConfig) -> Non
         report.llm_provider = config.provider
 
 
-def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Path) -> None:
+def format_wiki_link(title: str) -> str:
+    """Bear-style inter-note link; title must match the target note's heading."""
+    return f"[[{title}]]"
+
+
+def format_project_link(report_name: str, brief_path: Path, link_style: str) -> str:
+    if link_style == LINK_STYLE_MARKED:
+        return f"- [{report_name}]({brief_path})"
+    return f"- {format_wiki_link(report_name)}"
+
+
+def format_similar_project_links(items: list[SimilarProject], link_style: str) -> str:
+    if not items:
+        return "None yet"
+    if link_style == LINK_STYLE_MARKED:
+        return ", ".join(item.name for item in items)
+    return ", ".join(format_wiki_link(item.name) for item in items)
+
+
+def write_reports(
+    reports: list[ProjectReport],
+    source_dir: Path,
+    output_dir: Path,
+    *,
+    link_style: str = DEFAULT_LINK_STYLE,
+) -> None:
     reports_dir = output_dir / "projects"
     facts_dir = output_dir / "facts"
     reports_dir.mkdir(parents=True, exist_ok=True)
     facts_dir.mkdir(parents=True, exist_ok=True)
 
+    index_path = (output_dir / "index.md").resolve()
+
     for report in reports:
         slug = slugify(report.name)
-        (reports_dir / f"{slug}.md").write_text(render_project_markdown(report), encoding="utf-8")
+        (reports_dir / f"{slug}.md").write_text(
+            render_project_markdown(report, link_style=link_style, index_path=index_path),
+            encoding="utf-8",
+        )
         (facts_dir / f"{slug}.json").write_text(
             json.dumps(build_project_facts(report), indent=2),
             encoding="utf-8",
         )
 
-    index_md = render_index_markdown(reports, source_dir, output_dir)
+    index_md = render_index_markdown(reports, source_dir, output_dir, link_style=link_style)
     (output_dir / "index.md").write_text(index_md, encoding="utf-8")
     (output_dir / "projects.json").write_text(
         json.dumps([asdict(report) for report in reports], indent=2),
@@ -1189,7 +1233,13 @@ def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Pa
     )
 
 
-def render_index_markdown(reports: list[ProjectReport], source_dir: Path, output_dir: Path) -> str:
+def render_index_markdown(
+    reports: list[ProjectReport],
+    source_dir: Path,
+    output_dir: Path,
+    *,
+    link_style: str = DEFAULT_LINK_STYLE,
+) -> str:
     lines = [
         f"Marked Style: {MARKED_PREVIEW_STYLE}",
         f"Processor: {MARKED_PROCESSOR}",
@@ -1206,20 +1256,28 @@ def render_index_markdown(reports: list[ProjectReport], source_dir: Path, output
     for report in reports:
         slug = slugify(report.name)
         brief_path = (output_dir / "projects" / f"{slug}.md").resolve()
-        lines.append(f"- [{report.name}]({brief_path})")
+        lines.append(format_project_link(report.name, brief_path, link_style))
+    link_help = (
+        "Links use absolute paths so preview apps like Marked can find the files."
+        if link_style == LINK_STYLE_MARKED
+        else (
+            "Links use Bear-style `[[Note Title]]` wiki links (same pattern as infomux `store_bear`). "
+            "Titles match each brief's `#` heading so Bear can jump between notes."
+        )
+    )
     lines.extend(
         [
             "",
             "## Summary Table",
             "",
-            "Open briefs from the list above. Links use absolute paths so preview apps like Marked can find the files.",
+            f"Open briefs from the list above. {link_help}",
             "",
             "| Project | One-line read | Current state | Similar projects |",
             "|---|---|---|---|",
         ]
     )
     for report in reports:
-        similar = ", ".join(item.name for item in report.similar_projects) or "None yet"
+        similar = format_similar_project_links(report.similar_projects, link_style)
         lines.append(
             f"| {escape_pipes(report.name)} | {escape_pipes(report.one_liner)} | "
             f"{escape_pipes(report.current_state)} | {escape_pipes(similar)} |"
@@ -1227,37 +1285,51 @@ def render_index_markdown(reports: list[ProjectReport], source_dir: Path, output
     return "\n".join(lines) + "\n"
 
 
-def render_project_markdown(report: ProjectReport) -> str:
+def render_project_markdown(
+    report: ProjectReport,
+    *,
+    link_style: str = DEFAULT_LINK_STYLE,
+    index_path: Path | None = None,
+) -> str:
     lines = [
         f"# {report.name}",
         "",
-        f"Path: `{report.path}`",
-        "",
-        "## Start Here",
-        "",
-        report.one_liner,
-        "",
-        "## Plain-English Summary",
-        "",
-        report.plain_english_summary,
-        "",
-        "## Technical Summary",
-        "",
-        report.technical_summary,
-        "",
-        "## Metadata",
-        "",
-        f"- Stack: {', '.join(report.stack)}",
-        f"- Top-level folders: {'; '.join(report.structure.folder_roles) if report.structure.folder_roles else 'None detected'}",
-        f"- Likely run commands: {', '.join(report.structure.run_hints) if report.structure.run_hints else 'None detected'}",
-        f"- Test signals: {', '.join(report.structure.test_signals) if report.structure.test_signals else 'None detected'}",
-        f"- Summary provider: {f'repo scan + LLM enrichment ({report.llm_provider})' if report.llm_provider != 'none' else 'repo files only'}",
-        f"- Initial intent: {report.initial_intent}",
-        f"- Current state: {report.current_state}",
-        "",
-        "## Chronology",
-        "",
     ]
+    if link_style == LINK_STYLE_BEAR:
+        lines.extend([f"← {format_wiki_link(INDEX_NOTE_TITLE)}", ""])
+    elif index_path is not None:
+        lines.extend([f"← [Project Briefs]({index_path})", ""])
+
+    lines.extend(
+        [
+            f"Path: `{report.path}`",
+            "",
+            "## Start Here",
+            "",
+            report.one_liner,
+            "",
+            "## Plain-English Summary",
+            "",
+            report.plain_english_summary,
+            "",
+            "## Technical Summary",
+            "",
+            report.technical_summary,
+            "",
+            "## Metadata",
+            "",
+            f"- Stack: {', '.join(report.stack)}",
+            f"- Top-level folders: {'; '.join(report.structure.folder_roles) if report.structure.folder_roles else 'None detected'}",
+            f"- Likely run commands: {', '.join(report.structure.run_hints) if report.structure.run_hints else 'None detected'}",
+            f"- Test signals: {', '.join(report.structure.test_signals) if report.structure.test_signals else 'None detected'}",
+            f"- Summary provider: {f'repo scan + LLM enrichment ({report.llm_provider})' if report.llm_provider != 'none' else 'repo files only'}",
+            f"- Initial intent: {report.initial_intent}",
+            f"- Current state: {report.current_state}",
+            "",
+            "## Chronology",
+            "",
+        ]
+    )
 
     if report.git.tracked:
         lines.extend(
@@ -1302,8 +1374,14 @@ def render_project_markdown(report: ProjectReport) -> str:
     lines.extend(["", "## Similar Projects", ""])
     if report.similar_projects:
         for item in report.similar_projects:
+            name_link = (
+                item.name
+                if link_style == LINK_STYLE_MARKED
+                else format_wiki_link(item.name)
+            )
             lines.append(
-                f"- {item.name} ({item.similarity:.0%} similarity by local signals; shared: {', '.join(item.shared_signals)})"
+                f"- {name_link} ({item.similarity:.0%} similarity by local signals; "
+                f"shared: {', '.join(item.shared_signals)})"
             )
     else:
         lines.append("- No strong sibling project matches yet.")

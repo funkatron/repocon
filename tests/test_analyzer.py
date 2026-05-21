@@ -1,12 +1,16 @@
 from pathlib import Path
 
 from repocon.analyzer import (
+    LINK_STYLE_BEAR,
+    LINK_STYLE_MARKED,
     analyze_project,
     build_folder_roles,
     collect_top_level_folders,
     detect_test_signals,
+    format_wiki_link,
     is_ignored_dir,
     load_manifests,
+    render_index_markdown,
     render_project_markdown,
 )
 
@@ -57,3 +61,35 @@ def test_analyze_project_includes_run_and_test_metadata() -> None:
     assert "Likely run commands:" in markdown
     assert "Test signals:" in markdown
     assert "reports-sample" not in markdown
+
+
+def test_format_wiki_link_matches_bear_style() -> None:
+    assert format_wiki_link("now-playing") == "[[now-playing]]"
+    assert format_wiki_link("Project Briefs") == "[[Project Briefs]]"
+
+
+def test_render_index_uses_bear_links_by_default() -> None:
+    report = analyze_project(SAMPLE_APP)
+    index_md = render_index_markdown([report], SAMPLE_APP.parent, FIXTURES / "output")
+    assert "- [[sample-cli-app]]" in index_md
+    assert "Bear-style" in index_md
+
+
+def test_render_index_marked_uses_absolute_paths() -> None:
+    report = analyze_project(SAMPLE_APP)
+    output_dir = FIXTURES / "output"
+    index_md = render_index_markdown(
+        [report],
+        SAMPLE_APP.parent,
+        output_dir,
+        link_style=LINK_STYLE_MARKED,
+    )
+    brief_path = (output_dir / "projects" / "sample-cli-app.md").resolve()
+    assert f"- [sample-cli-app]({brief_path})" in index_md
+    assert "absolute paths" in index_md
+
+
+def test_render_project_includes_back_link_to_index() -> None:
+    report = analyze_project(SAMPLE_APP)
+    markdown = render_project_markdown(report, link_style=LINK_STYLE_BEAR)
+    assert "← [[Project Briefs]]" in markdown

@@ -46,6 +46,8 @@ No enrichment in that command: briefs come from README, manifests, git, and fold
 
 When the run finishes, repocon offers to open `reports/index.md` in [Marked](https://markedapp.com/) via the [`mk` CLI](https://markedapp.com/help/Command_Line_Utility.html) if installed (`brew install ttscoff/thelab/mk`). The index includes Marked metadata for **GitHub** styling and **CommonMark (GFM)** processing.
 
+By default, links between briefs use **Bear-style** `[[Note Title]]` wiki links (same pattern as infomux `store_bear`). Titles match each brief's `#` heading so [Bear.app](https://bear.app/) can jump between notes. For Marked preview with absolute file paths, pass `--link-style marked`.
+
 Limit to a few projects while iterating:
 
 ```bash
@@ -119,7 +121,7 @@ uv sync
 uv run repocon ~/src --output ./reports
 ```
 
-3. Open `reports/index.md` and skim the summary table first, then open 2–3 project briefs.
+3. Open `reports/index.md` and skim the summary table first, then open 2–3 project briefs (click `[[Note Title]]` links in Bear, or open the files directly).
 
 4. Optional LLM enrichment after the deterministic scan looks right:
 
@@ -144,7 +146,7 @@ Briefs are **evidence-based heuristics**. They read manifests, README, git, and 
 
 ## Output Shape
 
-- `index.md`: one-page rollup with links to each project brief
+- `index.md`: one-page rollup with Bear-style `[[Note Title]]` links to each project brief (use `--link-style marked` for absolute paths)
 - `projects/<name>.md`: full layered brief for one project
 - `projects.json`: structured export of all reports
 - `facts/<name>.json`: per-project evidence bundle used for optional LLM enrichment
