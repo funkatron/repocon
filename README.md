@@ -42,9 +42,21 @@ python3 -m pip install -e .
 repocon ~/src --output ./reports
 ```
 
-No AI in that command: briefs come from README, manifests, git, and folder layout only.
+No enrichment in that command: briefs come from README, manifests, git, and folder layout only.
 
 When the run finishes, repocon offers to open `reports/index.md` in [Marked](https://markedapp.com/) via the [`mk` CLI](https://markedapp.com/help/Command_Line_Utility.html) if installed (`brew install ttscoff/thelab/mk`). The index includes Marked metadata for **GitHub** styling and **CommonMark (GFM)** processing.
+
+By default, links between briefs use **Bear-style** `[[Note Title]]` wiki links (same pattern as infomux `store_bear`). Titles match each brief's `#` heading so [Bear.app](https://bear.app/) can jump between notes. For Marked preview with absolute file paths, pass `--link-style marked`.
+
+Export notes directly into Bear on macOS (uses [infomux](https://github.com/funkatron/infomux) `bear` helpers when installed):
+
+```bash
+uv run repocon ~/src --output ./reports --export-bear
+```
+
+Default **`--bear-mode upsert`**: updates notes exported before (tracked in `reports/.repocon-bear.json`) and creates new project briefs. Use `--bear-mode create` to always create fresh notes, or `--bear-mode update` to only replace by title.
+
+Tags come from `REPOCON_BEAR_TAGS` (default `repocon,projects`) or `INFOMUX_BEAR_TAGS` if set.
 
 Limit to a few projects while iterating:
 
@@ -58,7 +70,7 @@ Scan specific projects only:
 repocon ~/src --project now-playing --project PulseHZ --output ./reports-focused
 ```
 
-Optionally enrich briefs with an LLM after the repo scan:
+Optional LLM enrichment after the repo scan:
 
 ```bash
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini
@@ -94,15 +106,57 @@ export OLLAMA_BASE_URL=http://127.0.0.1:11435
 repocon ~/src --output ./reports-ollama --llm-provider ollama
 ```
 
-For a quick LLM smoke test without enriching every project:
+For a quick enrichment smoke test without enriching every project:
 
 ```bash
 repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --project PulseHZ --project repocon
 ```
 
+## Onboarding a new dev
+
+Use this when someone new needs a map of your local project folders before they touch code.
+
+**Assumption:** they have the same source layout you scan (typically `~/src` with one folder per repo).
+
+1. Install and sync:
+
+```bash
+cd repocon
+uv sync
+```
+
+2. Generate briefs on their machine:
+
+```bash
+uv run repocon ~/src --output ./reports
+```
+
+3. Open `reports/index.md` and skim the summary table first, then open 2–3 project briefs (click `[[Note Title]]` links in Bear, or open the files directly).
+
+4. Optional LLM enrichment after the deterministic scan looks right:
+
+```bash
+uv run repocon ~/src --output ./reports --llm-provider ollama --llm-limit 5
+```
+
+### How to read a brief
+
+Each `projects/<name>.md` file is layered on purpose:
+
+| Section | Use it for |
+|---|---|
+| **Start Here** / **Plain-English Summary** | What the project is for |
+| **Technical Summary** | Stack, folder roles, likely run commands, test signals, entrypoints |
+| **Metadata** | Quick facts pulled from the repo scan |
+| **Chronology** | When work started and what changed recently |
+| **Current State Evaluation** | Heuristic health read — verify before acting |
+| **Recommendations** | Suggested next steps — not authoritative |
+
+Briefs are **evidence-based heuristics**. They read manifests, README, git, and folder layout. They do not read issue trackers, PRs, or private notes.
+
 ## Output Shape
 
-- `index.md`: one-page rollup with links to each project brief
+- `index.md`: one-page rollup with Bear-style `[[Note Title]]` links to each project brief (use `--link-style marked` for absolute paths)
 - `projects/<name>.md`: full layered brief for one project
 - `projects.json`: structured export of all reports
 - `facts/<name>.json`: per-project evidence bundle used for optional LLM enrichment
@@ -112,32 +166,30 @@ Generated reports are local working output and should generally stay out of vers
 
 ## Next Obvious Improvements
 
-- summarize key folders more deeply instead of only naming them
-- inspect entrypoints and tests more precisely
 - detect project families and shared code patterns more intelligently
-- add optional LLM-backed enrichment on top of the repo scan
+- incremental rescans when only some repos changed
 
-## Planned LLM Handoff
+## How LLM enrichment works
 
 The scanner reads the repo first:
 
 - it collects facts from manifests, git, folder structure, likely entrypoints, and likely route files
 - it writes those facts into a stable intermediate report
-- an LLM can later be asked to enrich or expand that report, instead of guessing directly from the repo
+- optional enrichment rewrites that report from those facts, instead of guessing directly from the repo
 
 That means `--llm-provider openai` or `--llm-provider ollama` can be used safely:
 
 - the repo scan runs first
-- the scan output becomes the LLM context
-- the model only improves wording, synthesis, comparisons, and recommendations
-- if the LLM is unavailable, the base report still exists
+- the scan output becomes the enrichment context
+- enrichment improves wording, synthesis, comparisons, and recommendations
+- if enrichment is unavailable, the base report still exists
 
-That is the direction I would keep. The scanner should gather evidence; the LLM should enrich it.
+The scanner gathers evidence; enrichment improves the brief on top.
 
-## LLM Usage Notes
+## LLM enrichment notes
 
-- by default, briefs use repo files only — no AI
-- the LLM sees extracted facts, not raw repo dumps
+- by default, briefs use repo files only — no enrichment
+- enrichment sees extracted facts, not raw repo dumps
 - when you opt in, LLM enrichment runs for every scanned project; use `--llm-limit N` for quick tests
 - OpenAI requires `OPENAI_API_KEY`
 - Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
