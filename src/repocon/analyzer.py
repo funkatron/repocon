@@ -19,6 +19,8 @@ import tomllib
 
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct"
+MARKED_PREVIEW_STYLE = "GitHub"
+MARKED_PROCESSOR = "commonmark"
 
 NOISE_DIRS = {
     ".git",
@@ -198,6 +200,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "      Try LLM enrichment on 3 projects before running the full set.\n"
             "  ./scripts/repocon-ollama.sh --project repocon\n"
             "      Ollama on nakedsnake via SSH tunnel.\n\n"
+            "After a run, repocon can open reports/index.md in Marked (mk) when available.\n"
+            "Install: brew tap ttscoff/thelab && brew install ttscoff/thelab/mk\n"
+            "Docs: https://markedapp.com/help/Command_Line_Utility.html\n\n"
             "Environment (LLM):\n"
             "  OLLAMA_BASE_URL, OLLAMA_HOST   Ollama server (--llm-provider ollama)\n"
             "  OLLAMA_MODEL                   Default Ollama model\n"
@@ -283,6 +288,19 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def open_path(path: Path) -> None:
     if sys.platform == "darwin":
+        if shutil_which("mk"):
+            subprocess.run(
+                ["mk", "--raise", "--style", MARKED_PREVIEW_STYLE, str(path)],
+                check=False,
+            )
+            return
+        for marked_app in (
+            Path("/Applications/Marked.app"),
+            Path("/Applications/Setapp/Marked.app"),
+        ):
+            if marked_app.exists():
+                subprocess.run(["open", "-a", str(marked_app), str(path)], check=False)
+                return
         subprocess.run(["open", str(path)], check=False)
         return
     if sys.platform.startswith("linux"):
@@ -953,7 +971,7 @@ def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Pa
             encoding="utf-8",
         )
 
-    index_md = render_index_markdown(reports, source_dir)
+    index_md = render_index_markdown(reports, source_dir, output_dir)
     (output_dir / "index.md").write_text(index_md, encoding="utf-8")
     (output_dir / "projects.json").write_text(
         json.dumps([asdict(report) for report in reports], indent=2),
@@ -965,8 +983,11 @@ def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Pa
     )
 
 
-def render_index_markdown(reports: list[ProjectReport], source_dir: Path) -> str:
+def render_index_markdown(reports: list[ProjectReport], source_dir: Path, output_dir: Path) -> str:
     lines = [
+        f"Marked Style: {MARKED_PREVIEW_STYLE}",
+        f"Processor: {MARKED_PROCESSOR}",
+        "",
         "# Project Briefs",
         "",
         f"Scanned source directory: `{source_dir}`",
@@ -978,13 +999,14 @@ def render_index_markdown(reports: list[ProjectReport], source_dir: Path) -> str
     ]
     for report in reports:
         slug = slugify(report.name)
-        lines.append(f"- [{report.name}](projects/{slug}.md)")
+        brief_path = (output_dir / "projects" / f"{slug}.md").resolve()
+        lines.append(f"- [{report.name}]({brief_path})")
     lines.extend(
         [
             "",
             "## Summary Table",
             "",
-            "Use the list above to open briefs — table links often fail in Markdown preview apps.",
+            "Open briefs from the list above. Links use absolute paths so preview apps like Marked can find the files.",
             "",
             "| Project | One-line read | Current state | Similar projects |",
             "|---|---|---|---|",

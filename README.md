@@ -44,6 +44,8 @@ repocon ~/src --output ./reports
 
 No AI in that command: briefs come from README, manifests, git, and folder layout only.
 
+When the run finishes, repocon offers to open `reports/index.md` in [Marked](https://markedapp.com/) via the [`mk` CLI](https://markedapp.com/help/Command_Line_Utility.html) if installed (`brew install ttscoff/thelab/mk`). The index includes Marked metadata for **GitHub** styling and **CommonMark (GFM)** processing.
+
 Limit to a few projects while iterating:
 
 ```bash
