@@ -20,7 +20,7 @@ The output is meant to work in two passes:
 
 - it does not read your mind
 - it does not inspect private issue trackers, PRs, or business plans
-- LLM rewrite is optional and off by default
+- LLM enrichment is optional and off by default
 - it only knows what the repo visibly signals
 
 That is intentional for v1. It keeps the output explicit and auditable.
@@ -52,7 +52,7 @@ Scan specific projects only:
 repocon ~/src --project now-playing --project PulseHZ --output ./reports-focused
 ```
 
-Run the deterministic scan first, but let an LLM rewrite only the extracted facts:
+Run the deterministic scan first, then optionally let an LLM enrich the extracted facts:
 
 ```bash
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini
@@ -66,7 +66,7 @@ export OLLAMA_MODEL=qwen2.5:7b-instruct   # optional; this is the default
 repocon ~/src --output ./reports-ollama --llm-provider ollama
 ```
 
-`OLLAMA_BASE_URL` (or `OLLAMA_HOST`) picks the server; `--llm-provider ollama` enables the LLM rewrite step. Deterministic-only runs ignore those env vars.
+`OLLAMA_BASE_URL` (or `OLLAMA_HOST`) picks the server; `--llm-provider ollama` enables the LLM enrichment step. Deterministic-only runs ignore those env vars.
 
 On this machine, use the helper script to reach nakedsnake without managing the tunnel yourself:
 
@@ -88,7 +88,7 @@ export OLLAMA_BASE_URL=http://127.0.0.1:11435
 repocon ~/src --output ./reports-ollama --llm-provider ollama
 ```
 
-For a quick LLM smoke test without rewriting every project:
+For a quick LLM smoke test without enriching every project:
 
 ```bash
 repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --project PulseHZ --project repocon
@@ -99,7 +99,7 @@ repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --projec
 - `index.md`: one-page rollup with links to each project brief
 - `projects/<name>.md`: full layered brief for one project
 - `projects.json`: structured export of all reports
-- `facts/<name>.json`: per-project evidence bundle used for the optional LLM rewrite
+- `facts/<name>.json`: per-project evidence bundle used for optional LLM enrichment
 - `facts.json`: aggregate evidence export for all projects
 
 Generated reports are local working output and should generally stay out of version control. They may contain absolute local paths and project names from your machine.
@@ -109,7 +109,7 @@ Generated reports are local working output and should generally stay out of vers
 - summarize key folders more deeply instead of only naming them
 - inspect entrypoints and tests more precisely
 - detect project families and shared code patterns more intelligently
-- add optional LLM-backed narrative generation on top of the deterministic scan
+- add optional LLM-backed enrichment on top of the deterministic scan
 
 ## Planned LLM Handoff
 
@@ -117,7 +117,7 @@ The current scanner is deliberately deterministic first:
 
 - it collects facts from manifests, git, folder structure, likely entrypoints, and likely route files
 - it writes those facts into a stable intermediate report
-- an LLM can later be asked to rewrite or expand that report, instead of guessing directly from the repo
+- an LLM can later be asked to enrich or expand that report, instead of guessing directly from the repo
 
 That means `--llm-provider openai` or `--llm-provider ollama` can be used safely:
 
@@ -126,13 +126,13 @@ That means `--llm-provider openai` or `--llm-provider ollama` can be used safely
 - the model only improves wording, synthesis, comparisons, and recommendations
 - if the LLM is unavailable, the base report still exists
 
-That is the direction I would keep. The scanner should gather evidence; the LLM should rewrite it.
+That is the direction I would keep. The scanner should gather evidence; the LLM should enrich it.
 
 ## LLM Usage Notes
 
 - default mode is still deterministic only
 - the LLM sees extracted facts, not raw repo dumps
-- by default, the LLM rewrite runs for every scanned project; use `--llm-limit N` for quick tests
+- by default, LLM enrichment runs for every scanned project; use `--llm-limit N` for quick tests
 - OpenAI requires `OPENAI_API_KEY`
 - Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
 - Ollama model: set `OLLAMA_MODEL` or rely on the default `qwen2.5:7b-instruct`

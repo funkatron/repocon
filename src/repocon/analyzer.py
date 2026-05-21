@@ -181,7 +181,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         description=(
             "Scan local project folders and write layered Markdown briefs.\n\n"
             "Deterministic by default: reads README, manifests, git history, and\n"
-            "folder structure. An optional LLM rewrite improves wording from\n"
+            "folder structure. An optional LLM enrichment improves wording from\n"
             "extracted facts only — it does not invent capabilities."
         ),
         epilog=(
@@ -191,10 +191,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "  repocon ~/src --project now-playing --output ./reports-one\n"
             "      Brief one project.\n"
             "  repocon ~/src --llm-provider ollama\n"
-            "      Rewrite every scanned brief with Ollama.\n"
+            "      Enrich every scanned brief with Ollama.\n"
             "  export OLLAMA_BASE_URL=http://127.0.0.1:11435\n"
             "  repocon ~/src --llm-provider ollama --llm-limit 3\n"
-            "      Quick LLM test: rewrite only the first 3 scanned projects.\n"
+            "      Quick LLM test: enrich only the first 3 scanned projects.\n"
             "  ./scripts/repocon-ollama.sh --project repocon\n"
             "      Use Ollama on nakedsnake via SSH tunnel.\n\n"
             "Environment (LLM):\n"
@@ -231,12 +231,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Scan only these folder names. Repeat for multiple projects.",
     )
 
-    llm = parser.add_argument_group("LLM rewrite (optional)")
+    llm = parser.add_argument_group("LLM enrichment (optional)")
     llm.add_argument(
         "--llm-provider",
         choices=("none", "openai", "ollama"),
         default="none",
-        help="Rewrite briefs with an LLM after the deterministic scan (default: %(default)s).",
+        help="Enrich briefs with an LLM after the deterministic scan (default: %(default)s).",
     )
     llm.add_argument(
         "--llm-model",
@@ -252,7 +252,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=int,
         metavar="N",
         default=None,
-        help="Rewrite only the first N scanned projects (for quick tests). Default: all.",
+        help="Enrich only the first N scanned projects (for quick tests). Default: all.",
     )
     llm.add_argument(
         "--llm-temperature",
@@ -283,7 +283,7 @@ def main() -> None:
 
     reports = analyze_projects(source_dir, limit=args.limit, include=args.project)
     enrich_similarity(reports)
-    apply_llm_narration(reports, llm_config)
+    apply_llm_enrichment(reports, llm_config)
     write_reports(reports, source_dir, output_dir)
 
     print(f"Wrote {len(reports)} project briefs to {output_dir}")
@@ -873,13 +873,13 @@ def enrich_similarity(reports: list[ProjectReport]) -> None:
         report.similar_projects = sorted(scored, key=lambda item: item.similarity, reverse=True)[:3]
 
 
-def apply_llm_narration(reports: list[ProjectReport], config: LLMConfig) -> None:
+def apply_llm_enrichment(reports: list[ProjectReport], config: LLMConfig) -> None:
     if config.provider == "none":
         return
 
     selected = reports[: config.max_projects] if config.max_projects is not None else reports
     for report in selected:
-        response = narrate_report_with_llm(report, config)
+        response = enrich_report_with_llm(report, config)
         if not response:
             continue
         report.one_liner = response.get("one_liner", report.one_liner).strip() or report.one_liner
@@ -1467,7 +1467,7 @@ def build_project_facts(report: ProjectReport) -> dict[str, Any]:
     }
 
 
-def narrate_report_with_llm(report: ProjectReport, config: LLMConfig) -> dict[str, Any] | None:
+def enrich_report_with_llm(report: ProjectReport, config: LLMConfig) -> dict[str, Any] | None:
     prompt = build_llm_prompt(report)
     raw_text = call_llm(config, prompt)
     if not raw_text:
