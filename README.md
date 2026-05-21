@@ -20,7 +20,7 @@ The output is meant to work in two passes:
 
 - it does not read your mind
 - it does not inspect private issue trackers, PRs, or business plans
-- LLM narration is optional and off by default
+- LLM rewrite is optional and off by default
 - it only knows what the repo visibly signals
 
 That is intentional for v1. It keeps the output explicit and auditable.
@@ -55,7 +55,7 @@ repocon ~/src --project now-playing --project PulseHZ --output ./reports-focused
 Run the deterministic scan first, but let an LLM rewrite only the extracted facts:
 
 ```bash
-repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini --llm-max-projects 5
+repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini
 ```
 
 Or use Ollama — set the server, then opt in explicitly:
@@ -63,10 +63,10 @@ Or use Ollama — set the server, then opt in explicitly:
 ```bash
 export OLLAMA_BASE_URL=http://127.0.0.1:11435
 export OLLAMA_MODEL=qwen2.5:7b-instruct   # optional; this is the default
-repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-max-projects 5
+repocon ~/src --output ./reports-ollama --llm-provider ollama
 ```
 
-`OLLAMA_BASE_URL` (or `OLLAMA_HOST`) picks the server; `--llm-provider ollama` turns narration on. Deterministic-only runs ignore those env vars.
+`OLLAMA_BASE_URL` (or `OLLAMA_HOST`) picks the server; `--llm-provider ollama` enables the LLM rewrite step. Deterministic-only runs ignore those env vars.
 
 On this machine, use the helper script to reach nakedsnake without managing the tunnel yourself:
 
@@ -77,7 +77,7 @@ On this machine, use the helper script to reach nakedsnake without managing the 
 The helper sets `OLLAMA_BASE_URL` after opening `localhost:11435 -> nakedsnake:11434`. If `OLLAMA_BASE_URL` is already set, it uses that server and skips the tunnel.
 
 ```bash
-OLLAMA_MODEL=qwen2.5:32b-instruct LLM_MAX_PROJECTS=3 ./scripts/repocon-ollama.sh
+OLLAMA_MODEL=qwen2.5:32b-instruct ./scripts/repocon-ollama.sh
 ```
 
 Manual tunnel for a remote Ollama server:
@@ -85,7 +85,13 @@ Manual tunnel for a remote Ollama server:
 ```bash
 ssh -N -L 11435:127.0.0.1:11434 nakedsnake
 export OLLAMA_BASE_URL=http://127.0.0.1:11435
-repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-max-projects 5
+repocon ~/src --output ./reports-ollama --llm-provider ollama
+```
+
+For a quick LLM smoke test without rewriting every project:
+
+```bash
+repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --project PulseHZ --project repocon
 ```
 
 ## Output Shape
@@ -93,7 +99,7 @@ repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-max-projects
 - `index.md`: one-page rollup with links to each project brief
 - `projects/<name>.md`: full layered brief for one project
 - `projects.json`: structured export of all reports
-- `facts/<name>.json`: per-project evidence bundle used for optional LLM narration
+- `facts/<name>.json`: per-project evidence bundle used for the optional LLM rewrite
 - `facts.json`: aggregate evidence export for all projects
 
 Generated reports are local working output and should generally stay out of version control. They may contain absolute local paths and project names from your machine.
@@ -120,13 +126,13 @@ That means `--llm-provider openai` or `--llm-provider ollama` can be used safely
 - the model only improves wording, synthesis, comparisons, and recommendations
 - if the LLM is unavailable, the base report still exists
 
-That is the direction I would keep. The scanner should gather evidence; the LLM should narrate it.
+That is the direction I would keep. The scanner should gather evidence; the LLM should rewrite it.
 
 ## LLM Usage Notes
 
 - default mode is still deterministic only
 - the LLM sees extracted facts, not raw repo dumps
-- `--llm-max-projects` lets you limit spend and runtime
+- by default, the LLM rewrite runs for every scanned project; use `--llm-limit N` for quick tests
 - OpenAI requires `OPENAI_API_KEY`
 - Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
 - Ollama model: set `OLLAMA_MODEL` or rely on the default `qwen2.5:7b-instruct`

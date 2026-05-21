@@ -7,7 +7,6 @@ OLLAMA_TUNNEL_PORT="${OLLAMA_TUNNEL_PORT:-11435}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:7b-instruct}"
 SOURCE_DIR="${SOURCE_DIR:-$HOME/src}"
 OUTPUT_DIR="${OUTPUT_DIR:-./reports-ollama}"
-LLM_MAX_PROJECTS="${LLM_MAX_PROJECTS:-5}"
 
 TUNNEL_PID=""
 
@@ -60,5 +59,4 @@ echo "Using Ollama at ${OLLAMA_BASE_URL} with model ${OLLAMA_MODEL}"
 exec "${REPOCON[@]}" "${SOURCE_DIR}" \
   --output "${OUTPUT_DIR}" \
   --llm-provider ollama \
-  --llm-max-projects "${LLM_MAX_PROJECTS}" \
   "$@"

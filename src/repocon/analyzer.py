@@ -172,68 +172,108 @@ class ProjectReport:
     llm_provider: str = "none"
 
 
-def main() -> None:
+def build_argument_parser() -> argparse.ArgumentParser:
+    formatter = argparse.RawDescriptionHelpFormatter
+    default_source = str(Path.home() / "src")
     parser = argparse.ArgumentParser(
         prog="repocon",
-        description="Generate newcomer-friendly briefs for projects in a source directory.",
+        formatter_class=formatter,
+        description=(
+            "Scan local project folders and write layered Markdown briefs.\n\n"
+            "Deterministic by default: reads README, manifests, git history, and\n"
+            "folder structure. An optional LLM rewrite improves wording from\n"
+            "extracted facts only — it does not invent capabilities."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  repocon\n"
+            "      Scan ~/src, write ./reports (deterministic only).\n"
+            "  repocon ~/src --project now-playing --output ./reports-one\n"
+            "      Brief one project.\n"
+            "  repocon ~/src --llm-provider ollama\n"
+            "      Rewrite every scanned brief with Ollama.\n"
+            "  export OLLAMA_BASE_URL=http://127.0.0.1:11435\n"
+            "  repocon ~/src --llm-provider ollama --llm-limit 3\n"
+            "      Quick LLM test: rewrite only the first 3 scanned projects.\n"
+            "  ./scripts/repocon-ollama.sh --project repocon\n"
+            "      Use Ollama on nakedsnake via SSH tunnel.\n\n"
+            "Environment (LLM):\n"
+            "  OLLAMA_BASE_URL, OLLAMA_HOST   Ollama server (--llm-provider ollama)\n"
+            "  OLLAMA_MODEL                   Default Ollama model\n"
+            "  OPENAI_API_KEY                 Required for --llm-provider openai"
+        ),
     )
     parser.add_argument(
         "source",
         nargs="?",
-        default=str(Path.home() / "src"),
-        help="Directory whose top-level folders should be treated as candidate projects.",
+        default=default_source,
+        help=f"Directory whose top-level folders are treated as projects (default: {default_source}).",
     )
-    parser.add_argument(
+
+    scan = parser.add_argument_group("scan")
+    scan.add_argument(
         "--output",
         default="reports",
-        help="Output directory for Markdown and JSON reports.",
+        help="Write index.md, projects/*.md, and JSON here (default: %(default)s).",
     )
-    parser.add_argument(
+    scan.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Only analyze the first N top-level folders.",
+        metavar="N",
+        help="Scan only the first N top-level folders.",
     )
-    parser.add_argument(
+    scan.add_argument(
         "--project",
         action="append",
         default=[],
-        help="Restrict analysis to one or more specific top-level folder names.",
+        metavar="NAME",
+        help="Scan only these folder names. Repeat for multiple projects.",
     )
-    parser.add_argument(
+
+    llm = parser.add_argument_group("LLM rewrite (optional)")
+    llm.add_argument(
         "--llm-provider",
         choices=("none", "openai", "ollama"),
         default="none",
-        help=(
-            "Optional narration provider. Deterministic scan still runs first. "
-            "Use ollama with OLLAMA_BASE_URL or OLLAMA_HOST to choose the server."
-        ),
+        help="Rewrite briefs with an LLM after the deterministic scan (default: %(default)s).",
     )
-    parser.add_argument(
+    llm.add_argument(
         "--llm-model",
         default=None,
-        help="Model name for the selected LLM provider. Falls back to OLLAMA_MODEL.",
+        metavar="MODEL",
+        help=(
+            "Model name. OpenAI default: gpt-5-mini. "
+            "Ollama: OLLAMA_MODEL env, else qwen2.5:7b-instruct."
+        ),
     )
-    parser.add_argument(
-        "--llm-max-projects",
+    llm.add_argument(
+        "--llm-limit",
         type=int,
+        metavar="N",
         default=None,
-        help="Only send the first N analyzed projects through the LLM layer.",
+        help="Rewrite only the first N scanned projects (for quick tests). Default: all.",
     )
-    parser.add_argument(
+    llm.add_argument(
         "--llm-temperature",
         type=float,
         default=0.2,
-        help="Sampling temperature for the optional LLM rewrite.",
+        help="LLM sampling temperature (default: %(default)s).",
     )
-    parser.add_argument(
+    llm.add_argument(
         "--llm-base-url",
         default=None,
+        metavar="URL",
         help=(
-            "Optional base URL override for OpenAI-compatible or Ollama endpoints. "
-            "For Ollama, OLLAMA_BASE_URL or OLLAMA_HOST are used when this flag is omitted."
+            "API base URL. Ollama falls back to OLLAMA_BASE_URL, OLLAMA_HOST, "
+            "then http://127.0.0.1:11434."
         ),
     )
+    return parser
+
+
+def main() -> None:
+    parser = build_argument_parser()
     args = parser.parse_args()
 
     source_dir = Path(args.source).expanduser().resolve()
@@ -1543,7 +1583,7 @@ def resolve_llm_config(args: argparse.Namespace) -> LLMConfig:
     return LLMConfig(
         provider=provider,
         model=model,
-        max_projects=args.llm_max_projects,
+        max_projects=args.llm_limit,
         temperature=args.llm_temperature,
         base_url=base_url,
     )
