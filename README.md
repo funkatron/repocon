@@ -9,7 +9,7 @@ The output is meant to work in two passes:
 
 ## What The First Version Does
 
-- scans each top-level folder in `~/src` by default
+- scans each top-level folder in a source directory you pass on the command line (e.g. `~/src`)
 - reads local repo signals such as `README`, `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, folder structure, and git history
 - writes one Markdown brief per project
 - generates a summary index, machine-readable JSON export, and structured facts files
@@ -27,6 +27,8 @@ That is intentional for v1. It keeps the output explicit and auditable.
 
 ## Run It
 
+Pass the directory that **contains** your project repos — each subfolder becomes one brief.
+
 From this directory:
 
 ```bash
@@ -40,6 +42,8 @@ python3 -m pip install -e .
 repocon ~/src --output ./reports
 ```
 
+No AI in that command: briefs come from README, manifests, git, and folder layout only.
+
 Limit to a few projects while iterating:
 
 ```bash
@@ -52,7 +56,7 @@ Scan specific projects only:
 repocon ~/src --project now-playing --project PulseHZ --output ./reports-focused
 ```
 
-Run the deterministic scan first, then optionally let an LLM enrich the extracted facts:
+Optionally enrich briefs with an LLM after the repo scan:
 
 ```bash
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini
@@ -109,11 +113,11 @@ Generated reports are local working output and should generally stay out of vers
 - summarize key folders more deeply instead of only naming them
 - inspect entrypoints and tests more precisely
 - detect project families and shared code patterns more intelligently
-- add optional LLM-backed enrichment on top of the deterministic scan
+- add optional LLM-backed enrichment on top of the repo scan
 
 ## Planned LLM Handoff
 
-The current scanner is deliberately deterministic first:
+The scanner reads the repo first:
 
 - it collects facts from manifests, git, folder structure, likely entrypoints, and likely route files
 - it writes those facts into a stable intermediate report
@@ -121,7 +125,7 @@ The current scanner is deliberately deterministic first:
 
 That means `--llm-provider openai` or `--llm-provider ollama` can be used safely:
 
-- deterministic scan runs first
+- the repo scan runs first
 - the scan output becomes the LLM context
 - the model only improves wording, synthesis, comparisons, and recommendations
 - if the LLM is unavailable, the base report still exists
@@ -130,9 +134,9 @@ That is the direction I would keep. The scanner should gather evidence; the LLM 
 
 ## LLM Usage Notes
 
-- default mode is still deterministic only
+- by default, briefs use repo files only — no AI
 - the LLM sees extracted facts, not raw repo dumps
-- by default, LLM enrichment runs for every scanned project; use `--llm-limit N` for quick tests
+- when you opt in, LLM enrichment runs for every scanned project; use `--llm-limit N` for quick tests
 - OpenAI requires `OPENAI_API_KEY`
 - Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
 - Ollama model: set `OLLAMA_MODEL` or rely on the default `qwen2.5:7b-instruct`

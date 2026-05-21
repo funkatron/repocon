@@ -174,29 +174,29 @@ class ProjectReport:
 
 def build_argument_parser() -> argparse.ArgumentParser:
     formatter = argparse.RawDescriptionHelpFormatter
-    default_source = str(Path.home() / "src")
     parser = argparse.ArgumentParser(
         prog="repocon",
         formatter_class=formatter,
         description=(
-            "Scan local project folders and write layered Markdown briefs.\n\n"
-            "Deterministic by default: reads README, manifests, git history, and\n"
-            "folder structure. An optional LLM enrichment improves wording from\n"
-            "extracted facts only — it does not invent capabilities."
+            "Write a brief for each project folder on disk.\n\n"
+            "Pass a directory that contains your repos as subfolders — repocon\n"
+            "reads README, manifests, git history, and layout, then writes\n"
+            "index.md, projects/*.md, and JSON under --output.\n\n"
+            "No AI unless you pass --llm-provider."
         ),
         epilog=(
             "Examples:\n"
-            "  repocon\n"
-            "      Scan ~/src, write ./reports (deterministic only).\n"
+            "  repocon ~/src\n"
+            "      One brief per repo under ~/src; output in ./reports/.\n"
             "  repocon ~/src --project now-playing --output ./reports-one\n"
-            "      Brief one project.\n"
+            "      Brief a single project.\n"
             "  repocon ~/src --llm-provider ollama\n"
-            "      Enrich every scanned brief with Ollama.\n"
+            "      Scan first, then polish briefs with Ollama.\n"
             "  export OLLAMA_BASE_URL=http://127.0.0.1:11435\n"
             "  repocon ~/src --llm-provider ollama --llm-limit 3\n"
-            "      Quick LLM test: enrich only the first 3 scanned projects.\n"
+            "      Try LLM enrichment on 3 projects before running the full set.\n"
             "  ./scripts/repocon-ollama.sh --project repocon\n"
-            "      Use Ollama on nakedsnake via SSH tunnel.\n\n"
+            "      Ollama on nakedsnake via SSH tunnel.\n\n"
             "Environment (LLM):\n"
             "  OLLAMA_BASE_URL, OLLAMA_HOST   Ollama server (--llm-provider ollama)\n"
             "  OLLAMA_MODEL                   Default Ollama model\n"
@@ -205,9 +205,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "source",
-        nargs="?",
-        default=default_source,
-        help=f"Directory whose top-level folders are treated as projects (default: {default_source}).",
+        help="Directory containing project repos (each top-level subfolder is one project).",
     )
 
     scan = parser.add_argument_group("scan")
@@ -236,7 +234,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--llm-provider",
         choices=("none", "openai", "ollama"),
         default="none",
-        help="Enrich briefs with an LLM after the deterministic scan (default: %(default)s).",
+        help="Enrich briefs with an LLM after the repo scan (default: %(default)s).",
     )
     llm.add_argument(
         "--llm-model",
@@ -971,7 +969,7 @@ def render_project_markdown(report: ProjectReport) -> str:
         "",
         f"- Stack: {', '.join(report.stack)}",
         f"- Important top-level folders: {', '.join(report.top_level_folders) if report.top_level_folders else 'None detected'}",
-        f"- Summary provider: {'deterministic scan + ' + report.llm_provider if report.llm_provider != 'none' else 'deterministic scan only'}",
+        f"- Summary provider: {'repo scan + ' + report.llm_provider if report.llm_provider != 'none' else 'repo files only'}",
         f"- Initial intent: {report.initial_intent}",
         f"- Current state: {report.current_state}",
         "",
