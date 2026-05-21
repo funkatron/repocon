@@ -114,45 +114,16 @@ repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --projec
 
 ## Onboarding a new dev
 
-Use this when someone new needs a map of your local project folders before they touch code.
+**Full guide:** [docs/onboarding-new-dev.md](docs/onboarding-new-dev.md) — Bear cleanup, full portfolio run, how to read briefs, optional LLM enrichment, and first-day checklist.
 
-**Assumption:** they have the same source layout you scan (typically `~/src` with one folder per repo).
-
-1. Install and sync:
+Quick path:
 
 ```bash
-cd repocon
-uv sync
+cd ~/src/repocon && uv sync
+uv run repocon ~/src --output ./reports --export-bear --no-open
 ```
 
-2. Generate briefs on their machine:
-
-```bash
-uv run repocon ~/src --output ./reports
-```
-
-3. Open `reports/index.md` and skim the summary table first, then open 2–3 project briefs (click `[[Note Title]]` links in Bear, or open the files directly).
-
-4. Optional LLM enrichment after the deterministic scan looks right:
-
-```bash
-uv run repocon ~/src --output ./reports --llm-provider ollama --llm-limit 5
-```
-
-### How to read a brief
-
-Each `projects/<name>.md` file is layered on purpose:
-
-| Section | Use it for |
-|---|---|
-| **Start Here** / **Plain-English Summary** | What the project is for |
-| **Technical Summary** | Stack, folder roles, likely run commands, test signals, entrypoints |
-| **Metadata** | Quick facts pulled from the repo scan |
-| **Chronology** | When work started and what changed recently |
-| **Current State Evaluation** | Heuristic health read — verify before acting |
-| **Recommendations** | Suggested next steps — not authoritative |
-
-Briefs are **evidence-based heuristics**. They read manifests, README, git, and folder layout. They do not read issue trackers, PRs, or private notes.
+Open **Project Briefs** in Bear (or `reports/index.md`), skim the summary table and **Families**, then read 2–3 project briefs. Briefs are heuristic — verify before acting on recommendations.
 
 ## Output Shape
 
