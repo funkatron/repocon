@@ -58,10 +58,32 @@ Run the deterministic scan first, but let an LLM rewrite only the extracted fact
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini --llm-max-projects 5
 ```
 
-Or use a local Ollama model:
+Or use Ollama on nakedsnake via SSH tunnel (recommended on this machine — saves local disk, better models):
 
 ```bash
-repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-model llama3.1 --llm-max-projects 5
+./scripts/repocon-ollama.sh --project now-playing --project PulseHZ --project repocon
+```
+
+The helper script tunnels `localhost:11435` to nakedsnake's Ollama server and defaults to `qwen2.5:7b-instruct`. Override with env vars:
+
+```bash
+OLLAMA_MODEL=qwen2.5:32b-instruct LLM_MAX_PROJECTS=3 ./scripts/repocon-ollama.sh
+```
+
+Manual Ollama flags (local or tunneled):
+
+```bash
+repocon ~/src --output ./reports-ollama \
+  --llm-provider ollama \
+  --llm-model qwen2.5:7b-instruct \
+  --llm-base-url http://127.0.0.1:11435 \
+  --llm-max-projects 5
+```
+
+Start the tunnel in another terminal if you use `--llm-base-url` manually:
+
+```bash
+ssh -N -L 11435:127.0.0.1:11434 nakedsnake
 ```
 
 ## Output Shape
@@ -104,4 +126,7 @@ That is the direction I would keep. The scanner should gather evidence; the LLM 
 - the LLM sees extracted facts, not raw repo dumps
 - `--llm-max-projects` lets you limit spend and runtime
 - OpenAI requires `OPENAI_API_KEY`
+- Ollama default model is `qwen2.5:7b-instruct` (good JSON compliance for structured briefs)
 - Ollama assumes a local server on `http://127.0.0.1:11434` unless you override `--llm-base-url`
+- larger Ollama models (`32b`, `70b`) get a 300s timeout per project; smaller models use 120s
+- on this machine, prefer `./scripts/repocon-ollama.sh` to reach nakedsnake without installing models locally

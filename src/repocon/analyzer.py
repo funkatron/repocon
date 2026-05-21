@@ -1496,8 +1496,15 @@ def call_openai(config: LLMConfig, prompt: str) -> str | None:
     return None
 
 
+def ollama_request_timeout(model: str) -> int:
+    lower = model.lower()
+    if "32b" in lower or "70b" in lower:
+        return 300
+    return 120
+
+
 def call_ollama(config: LLMConfig, prompt: str) -> str | None:
-    model = config.model or "llama3.1"
+    model = config.model or "qwen2.5:7b-instruct"
     base_url = (config.base_url or "http://127.0.0.1:11434").rstrip("/")
     body = {
         "model": model,
@@ -1505,7 +1512,11 @@ def call_ollama(config: LLMConfig, prompt: str) -> str | None:
         "stream": False,
         "options": {"temperature": config.temperature},
     }
-    payload = http_post_json(f"{base_url}/api/generate", body, timeout=120)
+    payload = http_post_json(
+        f"{base_url}/api/generate",
+        body,
+        timeout=ollama_request_timeout(model),
+    )
     if not payload:
         return None
     response = payload.get("response")
