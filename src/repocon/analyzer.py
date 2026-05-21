@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -18,6 +19,8 @@ import tomllib
 
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct"
+MARKED_PREVIEW_STYLE = "GitHub"
+MARKED_PROCESSOR = "commonmark"
 
 NOISE_DIRS = {
     ".git",
@@ -197,6 +200,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "      Try LLM enrichment on 3 projects before running the full set.\n"
             "  ./scripts/repocon-ollama.sh --project repocon\n"
             "      Ollama on nakedsnake via SSH tunnel.\n\n"
+            "After a run, repocon can open reports/index.md in Marked (mk) when available.\n"
+            "Install: brew tap ttscoff/thelab && brew install ttscoff/thelab/mk\n"
+            "Docs: https://markedapp.com/help/Command_Line_Utility.html\n\n"
             "Environment (LLM):\n"
             "  OLLAMA_BASE_URL, OLLAMA_HOST   Ollama server (--llm-provider ollama)\n"
             "  OLLAMA_MODEL                   Default Ollama model\n"
@@ -227,6 +233,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="NAME",
         help="Scan only these folder names. Repeat for multiple projects.",
+    )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open reports/index.md when finished (no prompt).",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not offer to open reports/index.md when finished.",
     )
 
     llm = parser.add_argument_group("LLM enrichment (optional)")
@@ -270,6 +286,49 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def open_path(path: Path) -> None:
+    if sys.platform == "darwin":
+        if shutil_which("mk"):
+            subprocess.run(
+                ["mk", "--raise", "--style", MARKED_PREVIEW_STYLE, str(path)],
+                check=False,
+            )
+            return
+        for marked_app in (
+            Path("/Applications/Marked.app"),
+            Path("/Applications/Setapp/Marked.app"),
+        ):
+            if marked_app.exists():
+                subprocess.run(["open", "-a", str(marked_app), str(path)], check=False)
+                return
+        subprocess.run(["open", str(path)], check=False)
+        return
+    if sys.platform.startswith("linux"):
+        if shutil_which("xdg-open"):
+            subprocess.run(["xdg-open", str(path)], check=False)
+            return
+        print(f"Open manually: {path}")
+        return
+    print(f"Open manually: {path}")
+
+
+def maybe_open_index(index_path: Path, *, open_now: bool, no_open: bool) -> None:
+    if no_open or not index_path.is_file():
+        return
+    if open_now:
+        open_path(index_path)
+        return
+    if not sys.stdin.isatty():
+        return
+    try:
+        answer = input(f"Open {index_path}? [Enter to open, n to skip] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if answer in ("", "y", "yes"):
+        open_path(index_path)
+
+
 def main() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
@@ -285,7 +344,9 @@ def main() -> None:
     write_reports(reports, source_dir, output_dir)
 
     print(f"Wrote {len(reports)} project briefs to {output_dir}")
-    print(f"Open {output_dir / 'index.md'} for the rollup summary.")
+    index_path = output_dir / "index.md"
+    print(f"Summary: {index_path}")
+    maybe_open_index(index_path, open_now=args.open, no_open=args.no_open)
 
 
 def analyze_projects(source_dir: Path, limit: int | None, include: list[str]) -> list[ProjectReport]:
@@ -913,7 +974,7 @@ def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Pa
             encoding="utf-8",
         )
 
-    index_md = render_index_markdown(reports, source_dir)
+    index_md = render_index_markdown(reports, source_dir, output_dir)
     (output_dir / "index.md").write_text(index_md, encoding="utf-8")
     (output_dir / "projects.json").write_text(
         json.dumps([asdict(report) for report in reports], indent=2),
@@ -925,23 +986,39 @@ def write_reports(reports: list[ProjectReport], source_dir: Path, output_dir: Pa
     )
 
 
-def render_index_markdown(reports: list[ProjectReport], source_dir: Path) -> str:
+def render_index_markdown(reports: list[ProjectReport], source_dir: Path, output_dir: Path) -> str:
     lines = [
+        f"Marked Style: {MARKED_PREVIEW_STYLE}",
+        f"Processor: {MARKED_PROCESSOR}",
+        "",
         "# Project Briefs",
         "",
         f"Scanned source directory: `{source_dir}`",
         "",
         "Each project gets its own layered brief under `projects/`.",
         "",
-        "## Summary Table",
+        "## Projects",
         "",
-        "| Project | One-line read | Current state | Similar projects |",
-        "|---|---|---|---|",
     ]
+    for report in reports:
+        slug = slugify(report.name)
+        brief_path = (output_dir / "projects" / f"{slug}.md").resolve()
+        lines.append(f"- [{report.name}]({brief_path})")
+    lines.extend(
+        [
+            "",
+            "## Summary Table",
+            "",
+            "Open briefs from the list above. Links use absolute paths so preview apps like Marked can find the files.",
+            "",
+            "| Project | One-line read | Current state | Similar projects |",
+            "|---|---|---|---|",
+        ]
+    )
     for report in reports:
         similar = ", ".join(item.name for item in report.similar_projects) or "None yet"
         lines.append(
-            f"| [{report.name}](projects/{slugify(report.name)}.md) | {escape_pipes(report.one_liner)} | "
+            f"| {escape_pipes(report.name)} | {escape_pipes(report.one_liner)} | "
             f"{escape_pipes(report.current_state)} | {escape_pipes(similar)} |"
         )
     return "\n".join(lines) + "\n"
