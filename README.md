@@ -100,6 +100,48 @@ For a quick enrichment smoke test without enriching every project:
 repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --project PulseHZ --project repocon
 ```
 
+## Onboarding a new dev
+
+Use this when someone new needs a map of your local project folders before they touch code.
+
+**Assumption:** they have the same source layout you scan (typically `~/src` with one folder per repo).
+
+1. Install and sync:
+
+```bash
+cd repocon
+uv sync
+```
+
+2. Generate briefs on their machine:
+
+```bash
+uv run repocon ~/src --output ./reports
+```
+
+3. Open `reports/index.md` and skim the summary table first, then open 2–3 project briefs.
+
+4. Optional LLM enrichment after the deterministic scan looks right:
+
+```bash
+uv run repocon ~/src --output ./reports --llm-provider ollama --llm-limit 5
+```
+
+### How to read a brief
+
+Each `projects/<name>.md` file is layered on purpose:
+
+| Section | Use it for |
+|---|---|
+| **Start Here** / **Plain-English Summary** | What the project is for |
+| **Technical Summary** | Stack, folder roles, likely run commands, test signals, entrypoints |
+| **Metadata** | Quick facts pulled from the repo scan |
+| **Chronology** | When work started and what changed recently |
+| **Current State Evaluation** | Heuristic health read — verify before acting |
+| **Recommendations** | Suggested next steps — not authoritative |
+
+Briefs are **evidence-based heuristics**. They read manifests, README, git, and folder layout. They do not read issue trackers, PRs, or private notes.
+
 ## Output Shape
 
 - `index.md`: one-page rollup with links to each project brief
@@ -112,9 +154,9 @@ Generated reports are local working output and should generally stay out of vers
 
 ## Next Obvious Improvements
 
-- summarize key folders more deeply instead of only naming them
-- inspect entrypoints and tests more precisely
 - detect project families and shared code patterns more intelligently
+- index landing page with clearer navigation for large source trees
+- incremental rescans when only some repos changed
 
 ## How LLM enrichment works
 

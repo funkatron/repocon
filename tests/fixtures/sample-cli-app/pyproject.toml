@@ -1,0 +1,11 @@
+[project]
+name = "sample-cli"
+version = "0.1.0"
+description = "Fixture project for repocon tests."
+requires-python = ">=3.11"
+
+[project.scripts]
+sample-cli = "sample_cli.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

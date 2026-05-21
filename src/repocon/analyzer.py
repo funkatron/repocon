@@ -41,7 +41,54 @@ NOISE_DIRS = {
     "coverage",
     ".next",
     ".vite",
+    ".tox",
+    ".nox",
+    "htmlcov",
+    "site-packages",
 }
+ARTIFACT_DIR_NAMES = frozenset(
+    {
+        "reports",
+        "output",
+        "out",
+        "tmp",
+        "temp",
+    }
+)
+ARTIFACT_DIR_PREFIXES = ("reports-", "report-", "reports_", "dist-", "build-")
+FOLDER_ROLE_HINTS: dict[str, str] = {
+    "src": "application source code",
+    "app": "application code",
+    "lib": "library code",
+    "tests": "automated tests",
+    "test": "automated tests",
+    "spec": "automated tests",
+    "scripts": "helper scripts and tooling",
+    "docs": "documentation",
+    "doc": "documentation",
+    "routes": "HTTP routes or API handlers",
+    "api": "API layer",
+    "public": "static or public web assets",
+    "web": "web frontend",
+    "frontend": "web frontend",
+    "backend": "server-side code",
+    "cmd": "CLI entry commands (Go convention)",
+    "bin": "executables or CLI wrappers",
+    "pkg": "library packages (Go convention)",
+    "internal": "internal implementation packages",
+    "components": "UI components",
+    "pages": "web pages or route views",
+    "assets": "static assets",
+    "resources": "static or template resources",
+    "migrations": "database migrations",
+    "config": "configuration",
+    "infra": "infrastructure or deployment config",
+    "docker": "container definitions",
+    "tools": "developer tooling",
+    "examples": "example usage",
+    "fixtures": "test fixtures or sample data",
+}
+RUN_SCRIPT_KEYS = ("start", "dev", "serve", "run", "build")
 README_NAMES = ("README.md", "README.rst", "README.txt", "readme.md")
 KEYWORD_STOPWORDS = {
     "the",
@@ -141,6 +188,9 @@ class StructureSignals:
     route_hints: list[str] = field(default_factory=list)
     component_hints: list[str] = field(default_factory=list)
     inferred_capabilities: list[str] = field(default_factory=list)
+    folder_roles: list[str] = field(default_factory=list)
+    test_signals: list[str] = field(default_factory=list)
+    run_hints: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -173,6 +223,153 @@ class ProjectReport:
     structure: StructureSignals
     similar_projects: list[SimilarProject] = field(default_factory=list)
     llm_provider: str = "none"
+
+
+def is_ignored_dir(name: str) -> bool:
+    if name in NOISE_DIRS or name.startswith("."):
+        return True
+    if name.endswith(".egg-info"):
+        return True
+    if name in ARTIFACT_DIR_NAMES:
+        return True
+    lowered = name.lower()
+    return any(lowered.startswith(prefix) for prefix in ARTIFACT_DIR_PREFIXES)
+
+
+def collect_top_level_folders(project_dir: Path) -> list[str]:
+    return [
+        child.name
+        for child in sorted(project_dir.iterdir())
+        if child.is_dir() and not is_ignored_dir(child.name)
+    ][:12]
+
+
+def describe_folder_role(name: str) -> str:
+    role = FOLDER_ROLE_HINTS.get(name.lower())
+    if role:
+        return f"{name} — {role}"
+    return name
+
+
+def build_folder_roles(folder_names: list[str]) -> list[str]:
+    return [describe_folder_role(name) for name in folder_names]
+
+
+def detect_test_signals(project_dir: Path, manifests: dict[str, Any]) -> list[str]:
+    signals: list[str] = []
+
+    if (project_dir / "tests").is_dir():
+        signals.append("Python-style test directory at tests/")
+    if (project_dir / "test").is_dir():
+        signals.append("Test directory at test/")
+    if (project_dir / "__tests__").is_dir():
+        signals.append("JavaScript-style test directory at __tests__/")
+    if (project_dir / "conftest.py").exists():
+        signals.append("pytest conftest.py at repo root")
+    if (project_dir / "pytest.ini").exists():
+        signals.append("pytest.ini")
+
+    pyproject = manifests.get("pyproject", {})
+    if isinstance(pyproject, dict):
+        tool_section = pyproject.get("tool", {})
+        if isinstance(tool_section, dict) and "pytest" in tool_section:
+            signals.append("pytest configured in pyproject.toml")
+
+    package = manifests.get("package.json", {})
+    if isinstance(package, dict):
+        scripts = package.get("scripts", {})
+        if isinstance(scripts, dict) and scripts.get("test"):
+            test_command = str(scripts["test"]).strip()
+            if len(test_command) > 60:
+                test_command = test_command[:57] + "..."
+            signals.append(f"npm test script: {test_command}")
+
+    for config_name in (
+        "jest.config.js",
+        "jest.config.ts",
+        "jest.config.mjs",
+        "jest.config.cjs",
+        "vitest.config.ts",
+        "vitest.config.js",
+        "vitest.config.mjs",
+    ):
+        if (project_dir / config_name).exists():
+            signals.append(config_name)
+
+    for config_name in ("phpunit.xml", "phpunit.xml.dist"):
+        if (project_dir / config_name).exists():
+            signals.append(config_name)
+
+    if has_go_test_files(project_dir):
+        signals.append("Go test files (*_test.go)")
+
+    if "cargo" in manifests and (project_dir / "tests").is_dir():
+        signals.append("Rust tests/ directory")
+
+    makefile = project_dir / "Makefile"
+    if makefile.exists():
+        makefile_text = safe_read_text(makefile, 4000)
+        if re.search(r"^test\s*:", makefile_text, flags=re.M):
+            signals.append("Makefile test target")
+
+    return dedupe_keep_order(signals)
+
+
+def has_go_test_files(project_dir: Path) -> bool:
+    for root, dirs, files in os.walk(project_dir):
+        dirs[:] = [name for name in dirs if not is_ignored_dir(name)]
+        try:
+            depth = len(Path(root).relative_to(project_dir).parts)
+        except ValueError:
+            depth = 0
+        if depth > 3:
+            dirs.clear()
+            continue
+        if any(file_name.endswith("_test.go") for file_name in files):
+            return True
+    return False
+
+
+def collect_run_hints(project_dir: Path, manifests: dict[str, Any]) -> list[str]:
+    hints: list[str] = []
+
+    package = manifests.get("package.json", {})
+    if isinstance(package, dict):
+        scripts = package.get("scripts", {})
+        if isinstance(scripts, dict):
+            for key in RUN_SCRIPT_KEYS:
+                if key in scripts:
+                    hints.append(f"npm run {key}")
+
+    pyproject = manifests.get("pyproject", {})
+    if isinstance(pyproject, dict):
+        project_section = pyproject.get("project", {})
+        if isinstance(project_section, dict):
+            script_table = project_section.get("scripts", {})
+            if isinstance(script_table, dict):
+                for script_name in list(script_table)[:4]:
+                    hints.append(f"{script_name} (pyproject script)")
+
+    makefile = project_dir / "Makefile"
+    if makefile.exists():
+        makefile_text = safe_read_text(makefile, 4000)
+        for target in RUN_SCRIPT_KEYS:
+            if re.search(rf"^{target}\s*:", makefile_text, flags=re.M):
+                hints.append(f"make {target}")
+
+    if (project_dir / "Cargo.toml").exists():
+        hints.append("cargo run")
+
+    if (project_dir / "go.mod").exists():
+        cmd_root = project_dir / "cmd"
+        if cmd_root.is_dir():
+            cmd_names = sorted(path.name for path in cmd_root.iterdir() if path.is_dir())
+            if cmd_names:
+                hints.append(f"go run ./cmd/{cmd_names[0]}")
+        elif (project_dir / "main.go").exists():
+            hints.append("go run .")
+
+    return dedupe_keep_order(hints)[:6]
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -367,25 +564,26 @@ def analyze_project(project_dir: Path) -> ProjectReport:
     readme_text = read_readme(project_dir)
     manifests = load_manifests(project_dir)
     stack = infer_stack(project_dir, manifests)
-    top_level_folders = [
-        child.name
-        for child in sorted(project_dir.iterdir())
-        if child.is_dir() and child.name not in NOISE_DIRS and not child.name.startswith(".")
-    ][:12]
+    top_level_folders = collect_top_level_folders(project_dir)
 
     code_language_counts = infer_languages(project_dir)
     structure = scan_structure(project_dir, stack)
+    structure.folder_roles = build_folder_roles(top_level_folders)
+    structure.test_signals = detect_test_signals(project_dir, manifests)
+    structure.run_hints = collect_run_hints(project_dir, manifests)
     git = summarize_git(project_dir)
     summary_source = pick_summary_source(project_dir, readme_text, manifests, stack, top_level_folders, structure)
     similarity_tokens = build_similarity_tokens(project_dir.name, readme_text, manifests, stack)
 
     one_liner = build_one_liner(project_dir.name, summary_source, stack)
-    plain_english = build_plain_english_summary(project_dir.name, summary_source, stack, top_level_folders)
+    plain_english = build_plain_english_summary(project_dir.name, summary_source, stack, structure.folder_roles)
     technical = build_technical_summary(
-        project_dir.name, manifests, stack, code_language_counts, top_level_folders, structure
+        project_dir.name, manifests, stack, code_language_counts, structure
     )
     initial_intent = build_initial_intent(project_dir.name, summary_source, git)
-    current_state, health_signals, risks = evaluate_current_state(project_dir, readme_text, manifests, git)
+    current_state, health_signals, risks = evaluate_current_state(
+        project_dir, readme_text, manifests, git, structure.test_signals
+    )
     recommendations = build_recommendations(project_dir.name, summary_source, stack, risks, health_signals)
     priority_recommendation = build_priority_recommendation(project_dir.name, stack, summary_source, health_signals, risks)
     monetization_potential = build_monetization_assessment(project_dir.name, summary_source, health_signals)
@@ -492,8 +690,8 @@ def infer_stack(project_dir: Path, manifests: dict[str, Any]) -> list[str]:
 def infer_languages(project_dir: Path) -> Counter[str]:
     counts: Counter[str] = Counter()
     for root, dirs, files in os.walk(project_dir):
-        dirs[:] = [name for name in dirs if name not in NOISE_DIRS and not name.startswith(".")]
-        if Path(root).parts[-1] in NOISE_DIRS:
+        dirs[:] = [name for name in dirs if not is_ignored_dir(name)]
+        if Path(root).parts[-1] in NOISE_DIRS or is_ignored_dir(Path(root).name):
             continue
         for file_name in files:
             extension = Path(file_name).suffix.lower()
@@ -527,8 +725,9 @@ def scan_structure(project_dir: Path, stack: list[str]) -> StructureSignals:
                 continue
             lower_text = text.lower()
 
-            if is_entrypoint_file(path, text):
-                signals.entrypoints.append(rel)
+            if not is_test_or_fixture_path(rel):
+                if is_entrypoint_file(path, text):
+                    signals.entrypoints.append(rel)
 
             if looks_like_route_file(path, text):
                 signals.route_files.append(rel)
@@ -664,10 +863,10 @@ def build_plain_english_summary(
     project_name: str,
     summary_source: str,
     stack: list[str],
-    top_level_folders: list[str],
+    folder_roles: list[str],
 ) -> str:
     summary = clean_summary_text(summary_source) or "The repo does not clearly state its purpose in the opening docs"
-    folder_text = ", ".join(top_level_folders[:5]) if top_level_folders else "a small top-level layout"
+    folder_text = ", ".join(folder_roles[:5]) if folder_roles else "a small top-level layout"
     return (
         f"Based on the repo's visible docs, {project_name} is meant to do this: {summary}. "
         f"It looks like a {', '.join(stack[:2])} project, and its visible structure starts with {folder_text}. "
@@ -680,7 +879,6 @@ def build_technical_summary(
     manifests: dict[str, Any],
     stack: list[str],
     language_counts: Counter[str],
-    top_level_folders: list[str],
     structure: StructureSignals,
 ) -> str:
     technical_bits = [f"Primary stack signals: {', '.join(stack)}."]
@@ -703,8 +901,12 @@ def build_technical_summary(
                     f"Python packaging exposes CLI entrypoints including: {', '.join(list(script_table)[:4])}."
                 )
 
-    if top_level_folders:
-        technical_bits.append(f"Main folders worth inspecting first: {', '.join(top_level_folders[:6])}.")
+    if structure.folder_roles:
+        technical_bits.append(f"Top-level folders: {'; '.join(structure.folder_roles[:6])}.")
+    if structure.run_hints:
+        technical_bits.append(f"Likely run commands: {', '.join(structure.run_hints[:4])}.")
+    if structure.test_signals:
+        technical_bits.append(f"Test signals: {', '.join(structure.test_signals[:4])}.")
     if structure.entrypoints:
         technical_bits.append(f"Likely entrypoints: {', '.join(structure.entrypoints[:4])}.")
     if structure.route_files:
@@ -736,6 +938,7 @@ def evaluate_current_state(
     readme_text: str,
     manifests: dict[str, Any],
     git: GitSummary,
+    test_signals: list[str],
 ) -> tuple[str, list[str], list[str]]:
     signals: list[str] = []
     risks: list[str] = []
@@ -761,11 +964,11 @@ def evaluate_current_state(
     else:
         risks.append("No usable git history was detected.")
 
-    if (project_dir / "tests").exists() or (project_dir / "test").exists():
-        signals.append("Has a dedicated test directory.")
+    if test_signals:
+        signals.append(f"Test tooling detected: {', '.join(test_signals[:3])}.")
         score += 0.8
     else:
-        risks.append("No obvious top-level test directory.")
+        risks.append("No test signals detected from manifests or layout.")
 
     if (project_dir / ".github" / "workflows").exists():
         signals.append("Has CI workflow definitions.")
@@ -812,7 +1015,7 @@ def build_recommendations(
         recs.append("Write a real project overview near the top of the README that explains the product, user, and outcome in plain language.")
     if "No obvious README" in " ".join(risks):
         recs.append("Write a short README that starts with who this is for, what problem it solves, and how to run it.")
-    if "No obvious top-level test directory." in risks:
+    if "No test signals detected from manifests or layout." in risks:
         recs.append("Add one happy-path smoke test so the repo can prove its core promise still works.")
     if "Recent commit activity suggests the project is not abandoned." in health_signals and any(
         token in lowered for token in ("server", "api", "desktop", "client", "obs", "export", "video", "music")
@@ -839,7 +1042,7 @@ def build_priority_recommendation(
     text = f"{project_name} {summary_source}".lower()
     user_facing = any(token in text for token in ("video", "music", "image", "viewer", "browser", "desktop", "obs"))
     active = any("Recent commit activity" in signal for signal in health_signals)
-    onboarding_gap = any("README" in risk or "test directory" in risk for risk in risks)
+    onboarding_gap = any("README" in risk or "test signals" in risk.lower() for risk in risks)
 
     if user_facing and active:
         return (
@@ -1045,7 +1248,9 @@ def render_project_markdown(report: ProjectReport) -> str:
         "## Metadata",
         "",
         f"- Stack: {', '.join(report.stack)}",
-        f"- Important top-level folders: {', '.join(report.top_level_folders) if report.top_level_folders else 'None detected'}",
+        f"- Top-level folders: {'; '.join(report.structure.folder_roles) if report.structure.folder_roles else 'None detected'}",
+        f"- Likely run commands: {', '.join(report.structure.run_hints) if report.structure.run_hints else 'None detected'}",
+        f"- Test signals: {', '.join(report.structure.test_signals) if report.structure.test_signals else 'None detected'}",
         f"- Summary provider: {f'repo scan + LLM enrichment ({report.llm_provider})' if report.llm_provider != 'none' else 'repo files only'}",
         f"- Initial intent: {report.initial_intent}",
         f"- Current state: {report.current_state}",
@@ -1118,7 +1323,7 @@ def count_repo_markers(project_dir: Path, pattern: str) -> int:
     count = 0
     compiled = re.compile(pattern)
     for root, dirs, files in os.walk(project_dir):
-        dirs[:] = [name for name in dirs if name not in NOISE_DIRS and not name.startswith(".")]
+        dirs[:] = [name for name in dirs if not is_ignored_dir(name)]
         for file_name in files[:1000]:
             candidate = Path(root) / file_name
             try:
@@ -1390,10 +1595,17 @@ def infer_trait_phrases(
     return traits
 
 
+def is_test_or_fixture_path(rel_path: str) -> bool:
+    lowered = rel_path.lower()
+    if lowered.startswith(("tests/", "test/", "__tests__/")):
+        return True
+    return "/fixtures/" in lowered
+
+
 def iter_source_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for current_root, dirs, names in os.walk(root):
-        dirs[:] = [name for name in dirs if name not in NOISE_DIRS and not name.startswith(".")]
+        dirs[:] = [name for name in dirs if not is_ignored_dir(name)]
         for name in names:
             path = Path(current_root) / name
             if path.suffix.lower() in {".py", ".php", ".js", ".ts", ".tsx", ".jsx", ".sh"}:
