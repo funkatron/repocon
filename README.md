@@ -54,6 +54,8 @@ Export notes directly into Bear on macOS (uses [infomux](https://github.com/funk
 uv run repocon ~/src --output ./reports --export-bear
 ```
 
+Default **`--bear-mode upsert`**: updates notes exported before (tracked in `reports/.repocon-bear.json`) and creates new project briefs. Use `--bear-mode create` to always create fresh notes, or `--bear-mode update` to only replace by title.
+
 Tags come from `REPOCON_BEAR_TAGS` (default `repocon,projects`) or `INFOMUX_BEAR_TAGS` if set.
 
 Limit to a few projects while iterating:

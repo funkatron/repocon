@@ -465,8 +465,18 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--export-bear",
         action="store_true",
         help=(
-            "Create Bear.app notes from the Markdown output (macOS only). "
+            "Sync Markdown output to Bear.app notes (macOS only). "
             "Uses infomux.bear when infomux is installed, same URL scheme as store_bear."
+        ),
+    )
+    parser.add_argument(
+        "--bear-mode",
+        choices=("upsert", "create", "update"),
+        default="upsert",
+        help=(
+            "How --export-bear writes notes (default: %(default)s). "
+            "upsert updates titles seen in a prior export and creates new ones; "
+            "create always creates; update always replaces by title."
         ),
     )
 
@@ -575,11 +585,15 @@ def main() -> None:
     if args.export_bear:
         from repocon.bear_export import export_reports_to_bear
 
-        note_count = export_reports_to_bear(
+        bear_result = export_reports_to_bear(
             output_dir,
             open_index=not args.no_open,
+            mode=args.bear_mode,
         )
-        print(f"Exported {note_count} notes to Bear")
+        print(
+            f"Synced {bear_result.total} Bear notes "
+            f"({bear_result.created} created, {bear_result.updated} updated)"
+        )
     else:
         maybe_open_index(index_path, open_now=args.open, no_open=args.no_open)
 

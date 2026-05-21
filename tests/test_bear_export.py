@@ -10,7 +10,14 @@ from repocon.analyzer import (
     detect_project_families,
     render_index_markdown,
 )
-from repocon.bear_export import export_reports_to_bear, note_title_from_markdown
+from repocon.bear_export import (
+    export_reports_to_bear,
+    load_bear_registry,
+    note_title_from_markdown,
+    registry_path,
+    save_bear_registry,
+    sync_bear_note,
+)
 
 
 def _report(name: str) -> ProjectReport:
@@ -62,32 +69,86 @@ def test_render_index_includes_families_section() -> None:
     assert "| Run | Tests |" in index_md
 
 
-def test_note_title_from_markdown_uses_heading() -> None:
-    path = Path("/tmp/example.md")
+def test_note_title_from_markdown_uses_heading(tmp_path: Path) -> None:
+    path = tmp_path / "example.md"
     path.write_text("# now-playing\n\nBody\n", encoding="utf-8")
     assert note_title_from_markdown(path) == "now-playing"
 
 
-@patch("repocon.bear_export.create_bear_note")
+def test_sync_bear_note_upsert_updates_known_title() -> None:
+    known = {"repocon"}
+    with patch("repocon.bear_export.replace_bear_note") as mock_replace:
+        action = sync_bear_note(
+            "repocon",
+            "body",
+            ["repocon"],
+            mode="upsert",
+            known_titles=known,
+        )
+    assert action == "updated"
+    mock_replace.assert_called_once()
+
+
+def test_sync_bear_note_upsert_creates_unknown_title() -> None:
+    known: set[str] = set()
+    with patch("repocon.bear_export.create_bear_note") as mock_create:
+        action = sync_bear_note(
+            "repocon",
+            "body",
+            ["repocon"],
+            mode="upsert",
+            known_titles=known,
+        )
+    assert action == "created"
+    mock_create.assert_called_once()
+    assert "repocon" in known
+
+
+@patch("repocon.bear_export.sync_bear_note")
 @patch("repocon.bear_export.time.sleep")
 @patch("sys.platform", "darwin")
-def test_export_reports_to_bear_creates_index_last(
+def test_export_reports_to_bear_upsert_writes_registry(
     _sleep: object,
-    mock_create: object,
+    mock_sync: object,
     tmp_path: Path,
 ) -> None:
     projects = tmp_path / "projects"
     projects.mkdir()
     (projects / "repocon.md").write_text("# repocon\n\nBrief\n", encoding="utf-8")
     (tmp_path / "index.md").write_text("# Project Briefs\n", encoding="utf-8")
+    mock_sync.return_value = "created"
 
-    count = export_reports_to_bear(tmp_path, open_index=True)
+    result = export_reports_to_bear(tmp_path, open_index=True, mode="upsert")
 
-    assert count == 2
-    assert mock_create.call_count == 2
-    last_call = mock_create.call_args_list[-1]
-    assert last_call.args[0] == "Project Briefs"
-    assert last_call.kwargs["open_note"] is True
+    assert result.total == 2
+    assert result.created == 2
+    assert load_bear_registry(tmp_path) == {"Project Briefs", "repocon"}
+    assert registry_path(tmp_path).is_file()
+
+
+@patch("repocon.bear_export.replace_bear_note")
+@patch("repocon.bear_export.create_bear_note")
+@patch("repocon.bear_export.time.sleep")
+@patch("sys.platform", "darwin")
+def test_export_reports_to_bear_second_run_updates(
+    _sleep: object,
+    mock_create: object,
+    mock_replace: object,
+    tmp_path: Path,
+) -> None:
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    (projects / "repocon.md").write_text("# repocon\n\nBrief\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text("# Project Briefs\n", encoding="utf-8")
+    save_bear_registry(tmp_path, {"repocon", "Project Briefs"})
+
+    result = export_reports_to_bear(tmp_path, open_index=False, mode="upsert")
+
+    assert result.total == 2
+    assert result.updated == 2
+    assert result.created == 0
+    mock_replace.assert_called()
+    mock_create.assert_not_called()
 
 
 @patch("sys.platform", "linux")
