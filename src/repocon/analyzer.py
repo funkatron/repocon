@@ -185,7 +185,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "Pass a directory that contains your repos as subfolders — repocon\n"
             "reads README, manifests, git history, and layout, then writes\n"
             "index.md, projects/*.md, and JSON under --output.\n\n"
-            "No AI unless you pass --llm-provider."
+            "LLM enrichment is off unless you pass --llm-provider."
         ),
         epilog=(
             "Examples:\n"
@@ -194,7 +194,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "  repocon ~/src --project now-playing --output ./reports-one\n"
             "      Brief a single project.\n"
             "  repocon ~/src --llm-provider ollama\n"
-            "      Scan first, then polish briefs with Ollama.\n"
+            "      Scan first, then run LLM enrichment with Ollama.\n"
             "  export OLLAMA_BASE_URL=http://127.0.0.1:11435\n"
             "  repocon ~/src --llm-provider ollama --llm-limit 3\n"
             "      Try LLM enrichment on 3 projects before running the full set.\n"
@@ -203,7 +203,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "After a run, repocon can open reports/index.md in Marked (mk) when available.\n"
             "Install: brew tap ttscoff/thelab && brew install ttscoff/thelab/mk\n"
             "Docs: https://markedapp.com/help/Command_Line_Utility.html\n\n"
-            "Environment (LLM):\n"
+            "Environment (LLM enrichment):\n"
             "  OLLAMA_BASE_URL, OLLAMA_HOST   Ollama server (--llm-provider ollama)\n"
             "  OLLAMA_MODEL                   Default Ollama model\n"
             "  OPENAI_API_KEY                 Required for --llm-provider openai"
@@ -250,7 +250,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--llm-provider",
         choices=("none", "openai", "ollama"),
         default="none",
-        help="Enrich briefs with an LLM after the repo scan (default: %(default)s).",
+        help="Run LLM enrichment after the repo scan (default: %(default)s).",
     )
     llm.add_argument(
         "--llm-model",
@@ -272,7 +272,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--llm-temperature",
         type=float,
         default=0.2,
-        help="LLM sampling temperature (default: %(default)s).",
+        help="Enrichment sampling temperature (default: %(default)s).",
     )
     llm.add_argument(
         "--llm-base-url",
@@ -1046,7 +1046,7 @@ def render_project_markdown(report: ProjectReport) -> str:
         "",
         f"- Stack: {', '.join(report.stack)}",
         f"- Important top-level folders: {', '.join(report.top_level_folders) if report.top_level_folders else 'None detected'}",
-        f"- Summary provider: {'repo scan + ' + report.llm_provider if report.llm_provider != 'none' else 'repo files only'}",
+        f"- Summary provider: {f'repo scan + LLM enrichment ({report.llm_provider})' if report.llm_provider != 'none' else 'repo files only'}",
         f"- Initial intent: {report.initial_intent}",
         f"- Current state: {report.current_state}",
         "",
@@ -1563,7 +1563,7 @@ def enrich_report_with_llm(report: ProjectReport, config: LLMConfig) -> dict[str
 def build_llm_prompt(report: ProjectReport) -> str:
     facts = build_project_facts(report)
     return (
-        "You are improving a deterministic project brief.\n"
+        "You are enriching a deterministic project brief.\n"
         "Use only the structured facts below. Do not invent facts or capabilities.\n"
         "Write concise, explicit prose for a newcomer. Return JSON only with these keys:\n"
         'one_liner, plain_english_summary, technical_summary, initial_intent, current_state, recommendations, priority_recommendation, monetization_potential.\n'

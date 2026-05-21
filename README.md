@@ -42,7 +42,7 @@ python3 -m pip install -e .
 repocon ~/src --output ./reports
 ```
 
-No AI in that command: briefs come from README, manifests, git, and folder layout only.
+No enrichment in that command: briefs come from README, manifests, git, and folder layout only.
 
 When the run finishes, repocon offers to open `reports/index.md` in [Marked](https://markedapp.com/) via the [`mk` CLI](https://markedapp.com/help/Command_Line_Utility.html) if installed (`brew install ttscoff/thelab/mk`). The index includes Marked metadata for **GitHub** styling and **CommonMark (GFM)** processing.
 
@@ -58,7 +58,7 @@ Scan specific projects only:
 repocon ~/src --project now-playing --project PulseHZ --output ./reports-focused
 ```
 
-Optionally enrich briefs with an LLM after the repo scan:
+Optional LLM enrichment after the repo scan:
 
 ```bash
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini
@@ -94,7 +94,7 @@ export OLLAMA_BASE_URL=http://127.0.0.1:11435
 repocon ~/src --output ./reports-ollama --llm-provider ollama
 ```
 
-For a quick LLM smoke test without enriching every project:
+For a quick enrichment smoke test without enriching every project:
 
 ```bash
 repocon ~/src --llm-provider ollama --llm-limit 3 --project now-playing --project PulseHZ --project repocon
@@ -115,29 +115,28 @@ Generated reports are local working output and should generally stay out of vers
 - summarize key folders more deeply instead of only naming them
 - inspect entrypoints and tests more precisely
 - detect project families and shared code patterns more intelligently
-- add optional LLM-backed enrichment on top of the repo scan
 
-## Planned LLM Handoff
+## How LLM enrichment works
 
 The scanner reads the repo first:
 
 - it collects facts from manifests, git, folder structure, likely entrypoints, and likely route files
 - it writes those facts into a stable intermediate report
-- an LLM can later be asked to enrich or expand that report, instead of guessing directly from the repo
+- optional enrichment rewrites that report from those facts, instead of guessing directly from the repo
 
 That means `--llm-provider openai` or `--llm-provider ollama` can be used safely:
 
 - the repo scan runs first
-- the scan output becomes the LLM context
-- the model only improves wording, synthesis, comparisons, and recommendations
-- if the LLM is unavailable, the base report still exists
+- the scan output becomes the enrichment context
+- enrichment improves wording, synthesis, comparisons, and recommendations
+- if enrichment is unavailable, the base report still exists
 
-That is the direction I would keep. The scanner should gather evidence; the LLM should enrich it.
+The scanner gathers evidence; enrichment improves the brief on top.
 
-## LLM Usage Notes
+## LLM enrichment notes
 
-- by default, briefs use repo files only — no AI
-- the LLM sees extracted facts, not raw repo dumps
+- by default, briefs use repo files only — no enrichment
+- enrichment sees extracted facts, not raw repo dumps
 - when you opt in, LLM enrichment runs for every scanned project; use `--llm-limit N` for quick tests
 - OpenAI requires `OPENAI_API_KEY`
 - Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
