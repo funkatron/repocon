@@ -58,32 +58,34 @@ Run the deterministic scan first, but let an LLM rewrite only the extracted fact
 repocon ~/src --output ./reports-openai --llm-provider openai --llm-model gpt-5-mini --llm-max-projects 5
 ```
 
-Or use Ollama on nakedsnake via SSH tunnel (recommended on this machine — saves local disk, better models):
+Or use Ollama — set the server, then opt in explicitly:
+
+```bash
+export OLLAMA_BASE_URL=http://127.0.0.1:11435
+export OLLAMA_MODEL=qwen2.5:7b-instruct   # optional; this is the default
+repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-max-projects 5
+```
+
+`OLLAMA_BASE_URL` (or `OLLAMA_HOST`) picks the server; `--llm-provider ollama` turns narration on. Deterministic-only runs ignore those env vars.
+
+On this machine, use the helper script to reach nakedsnake without managing the tunnel yourself:
 
 ```bash
 ./scripts/repocon-ollama.sh --project now-playing --project PulseHZ --project repocon
 ```
 
-The helper script tunnels `localhost:11435` to nakedsnake's Ollama server and defaults to `qwen2.5:7b-instruct`. Override with env vars:
+The helper sets `OLLAMA_BASE_URL` after opening `localhost:11435 -> nakedsnake:11434`. If `OLLAMA_BASE_URL` is already set, it uses that server and skips the tunnel.
 
 ```bash
 OLLAMA_MODEL=qwen2.5:32b-instruct LLM_MAX_PROJECTS=3 ./scripts/repocon-ollama.sh
 ```
 
-Manual Ollama flags (local or tunneled):
-
-```bash
-repocon ~/src --output ./reports-ollama \
-  --llm-provider ollama \
-  --llm-model qwen2.5:7b-instruct \
-  --llm-base-url http://127.0.0.1:11435 \
-  --llm-max-projects 5
-```
-
-Start the tunnel in another terminal if you use `--llm-base-url` manually:
+Manual tunnel for a remote Ollama server:
 
 ```bash
 ssh -N -L 11435:127.0.0.1:11434 nakedsnake
+export OLLAMA_BASE_URL=http://127.0.0.1:11435
+repocon ~/src --output ./reports-ollama --llm-provider ollama --llm-max-projects 5
 ```
 
 ## Output Shape
@@ -126,7 +128,7 @@ That is the direction I would keep. The scanner should gather evidence; the LLM 
 - the LLM sees extracted facts, not raw repo dumps
 - `--llm-max-projects` lets you limit spend and runtime
 - OpenAI requires `OPENAI_API_KEY`
-- Ollama default model is `qwen2.5:7b-instruct` (good JSON compliance for structured briefs)
-- Ollama assumes a local server on `http://127.0.0.1:11434` unless you override `--llm-base-url`
+- Ollama server: set `OLLAMA_BASE_URL` (or `OLLAMA_HOST` as `host:port`); used when `--llm-provider ollama`
+- Ollama model: set `OLLAMA_MODEL` or rely on the default `qwen2.5:7b-instruct`
 - larger Ollama models (`32b`, `70b`) get a 300s timeout per project; smaller models use 120s
 - on this machine, prefer `./scripts/repocon-ollama.sh` to reach nakedsnake without installing models locally

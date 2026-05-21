@@ -16,6 +16,9 @@ from typing import Any
 import tomllib
 
 
+DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct"
+
 NOISE_DIRS = {
     ".git",
     ".hg",
@@ -201,12 +204,15 @@ def main() -> None:
         "--llm-provider",
         choices=("none", "openai", "ollama"),
         default="none",
-        help="Optional narration provider. Deterministic scan still runs first.",
+        help=(
+            "Optional narration provider. Deterministic scan still runs first. "
+            "Use ollama with OLLAMA_BASE_URL or OLLAMA_HOST to choose the server."
+        ),
     )
     parser.add_argument(
         "--llm-model",
         default=None,
-        help="Model name for the selected LLM provider.",
+        help="Model name for the selected LLM provider. Falls back to OLLAMA_MODEL.",
     )
     parser.add_argument(
         "--llm-max-projects",
@@ -223,20 +229,17 @@ def main() -> None:
     parser.add_argument(
         "--llm-base-url",
         default=None,
-        help="Optional base URL override for OpenAI-compatible or Ollama endpoints.",
+        help=(
+            "Optional base URL override for OpenAI-compatible or Ollama endpoints. "
+            "For Ollama, OLLAMA_BASE_URL or OLLAMA_HOST are used when this flag is omitted."
+        ),
     )
     args = parser.parse_args()
 
     source_dir = Path(args.source).expanduser().resolve()
     output_dir = Path(args.output).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    llm_config = LLMConfig(
-        provider=args.llm_provider,
-        model=args.llm_model,
-        max_projects=args.llm_max_projects,
-        temperature=args.llm_temperature,
-        base_url=args.llm_base_url,
-    )
+    llm_config = resolve_llm_config(args)
 
     reports = analyze_projects(source_dir, limit=args.limit, include=args.project)
     enrich_similarity(reports)
@@ -1496,6 +1499,56 @@ def call_openai(config: LLMConfig, prompt: str) -> str | None:
     return None
 
 
+def env_or_none(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def normalize_ollama_base_url(raw: str) -> str:
+    cleaned = raw.strip().rstrip("/")
+    if "://" not in cleaned:
+        return f"http://{cleaned}"
+    return cleaned
+
+
+def ollama_base_url_from_env() -> str | None:
+    if value := env_or_none("OLLAMA_BASE_URL"):
+        return normalize_ollama_base_url(value)
+    if value := env_or_none("OLLAMA_HOST"):
+        return normalize_ollama_base_url(value)
+    return None
+
+
+def resolve_llm_config(args: argparse.Namespace) -> LLMConfig:
+    provider = args.llm_provider
+    model = args.llm_model or env_or_none("OLLAMA_MODEL")
+    env_ollama_url = ollama_base_url_from_env()
+
+    if provider == "ollama":
+        if args.llm_base_url:
+            base_url = normalize_ollama_base_url(args.llm_base_url)
+        else:
+            base_url = env_ollama_url or DEFAULT_OLLAMA_BASE_URL
+    elif args.llm_base_url:
+        base_url = normalize_ollama_base_url(args.llm_base_url)
+    else:
+        base_url = None
+
+    if provider == "ollama" and not model:
+        model = DEFAULT_OLLAMA_MODEL
+
+    return LLMConfig(
+        provider=provider,
+        model=model,
+        max_projects=args.llm_max_projects,
+        temperature=args.llm_temperature,
+        base_url=base_url,
+    )
+
+
 def ollama_request_timeout(model: str) -> int:
     lower = model.lower()
     if "32b" in lower or "70b" in lower:
@@ -1504,8 +1557,8 @@ def ollama_request_timeout(model: str) -> int:
 
 
 def call_ollama(config: LLMConfig, prompt: str) -> str | None:
-    model = config.model or "qwen2.5:7b-instruct"
-    base_url = (config.base_url or "http://127.0.0.1:11434").rstrip("/")
+    model = config.model or DEFAULT_OLLAMA_MODEL
+    base_url = (config.base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
     body = {
         "model": model,
         "prompt": prompt,
