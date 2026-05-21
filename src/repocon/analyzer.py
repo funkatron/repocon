@@ -186,6 +186,12 @@ class SimilarProject:
 
 
 @dataclass
+class ProjectFamily:
+    label: str
+    members: list[str]
+
+
+@dataclass
 class StructureSignals:
     entrypoints: list[str] = field(default_factory=list)
     route_files: list[str] = field(default_factory=list)
@@ -455,6 +461,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not offer to open reports/index.md when finished.",
     )
+    parser.add_argument(
+        "--export-bear",
+        action="store_true",
+        help=(
+            "Create Bear.app notes from the Markdown output (macOS only). "
+            "Uses infomux.bear when infomux is installed, same URL scheme as store_bear."
+        ),
+    )
 
     llm = parser.add_argument_group("LLM enrichment (optional)")
     llm.add_argument(
@@ -557,7 +571,17 @@ def main() -> None:
     print(f"Wrote {len(reports)} project briefs to {output_dir}")
     index_path = output_dir / "index.md"
     print(f"Summary: {index_path}")
-    maybe_open_index(index_path, open_now=args.open, no_open=args.no_open)
+
+    if args.export_bear:
+        from repocon.bear_export import export_reports_to_bear
+
+        note_count = export_reports_to_bear(
+            output_dir,
+            open_index=not args.no_open,
+        )
+        print(f"Exported {note_count} notes to Bear")
+    else:
+        maybe_open_index(index_path, open_now=args.open, no_open=args.no_open)
 
 
 def analyze_projects(source_dir: Path, limit: int | None, include: list[str]) -> list[ProjectReport]:
@@ -1177,6 +1201,69 @@ def apply_llm_enrichment(reports: list[ProjectReport], config: LLMConfig) -> Non
         report.llm_provider = config.provider
 
 
+def detect_project_families(reports: list[ProjectReport]) -> list[ProjectFamily]:
+    names = sorted({report.name for report in reports}, key=str.lower)
+    assigned: set[str] = set()
+    families: list[ProjectFamily] = []
+
+    for name in names:
+        if name in assigned:
+            continue
+        prefix = name.lower()
+        cluster = [name]
+        for other in names:
+            if other == name or other in assigned:
+                continue
+            other_lower = other.lower()
+            if other_lower.startswith(f"{prefix}-") or other_lower.startswith(f"{prefix}_"):
+                cluster.append(other)
+        if len(cluster) >= 2:
+            families.append(
+                ProjectFamily(label=name, members=sorted(cluster, key=str.lower))
+            )
+            assigned.update(cluster)
+
+    segment_map: dict[str, list[str]] = {}
+    for name in names:
+        if name in assigned:
+            continue
+        segment = re.split(r"[-_]", name.lower(), maxsplit=1)[0]
+        if not segment or segment in {"archive", "___archive"}:
+            continue
+        segment_map.setdefault(segment, []).append(name)
+
+    for segment, members in sorted(segment_map.items()):
+        if len(members) < 2:
+            continue
+        families.append(
+            ProjectFamily(label=segment, members=sorted(members, key=str.lower))
+        )
+        assigned.update(members)
+
+    deduped: list[ProjectFamily] = []
+    seen_member_sets: set[tuple[str, ...]] = set()
+    for family in sorted(families, key=lambda item: (-len(item.members), item.label.lower())):
+        key = tuple(family.members)
+        if key in seen_member_sets:
+            continue
+        seen_member_sets.add(key)
+        deduped.append(family)
+    return deduped
+
+
+def summarize_run_hint(report: ProjectReport) -> str:
+    if not report.structure.run_hints:
+        return "—"
+    hint = report.structure.run_hints[0]
+    if len(hint) > 48:
+        return hint[:45] + "..."
+    return hint
+
+
+def summarize_test_presence(report: ProjectReport) -> str:
+    return "yes" if report.structure.test_signals else "no"
+
+
 def format_wiki_link(title: str) -> str:
     """Bear-style inter-note link; title must match the target note's heading."""
     return f"[[{title}]]"
@@ -1221,7 +1308,13 @@ def write_reports(
             encoding="utf-8",
         )
 
-    index_md = render_index_markdown(reports, source_dir, output_dir, link_style=link_style)
+    index_md = render_index_markdown(
+        reports,
+        source_dir,
+        output_dir,
+        link_style=link_style,
+        families=detect_project_families(reports),
+    )
     (output_dir / "index.md").write_text(index_md, encoding="utf-8")
     (output_dir / "projects.json").write_text(
         json.dumps([asdict(report) for report in reports], indent=2),
@@ -1239,12 +1332,16 @@ def render_index_markdown(
     output_dir: Path,
     *,
     link_style: str = DEFAULT_LINK_STYLE,
+    families: list[ProjectFamily] | None = None,
 ) -> str:
+    project_families = families or []
     lines = [
         f"Marked Style: {MARKED_PREVIEW_STYLE}",
         f"Processor: {MARKED_PROCESSOR}",
         "",
         "# Project Briefs",
+        "",
+        "*Heuristic scan — verify before acting on recommendations.*",
         "",
         f"Scanned source directory: `{source_dir}`",
         "",
@@ -1257,6 +1354,29 @@ def render_index_markdown(
         slug = slugify(report.name)
         brief_path = (output_dir / "projects" / f"{slug}.md").resolve()
         lines.append(format_project_link(report.name, brief_path, link_style))
+
+    if project_families:
+        lines.extend(
+            [
+                "",
+                "## Families",
+                "",
+                "Heuristic groupings from folder names — useful for onboarding, not official team boundaries.",
+                "",
+            ]
+        )
+        for family in project_families:
+            lines.append(f"### {family.label}")
+            lines.append("")
+            for member in family.members:
+                if link_style == LINK_STYLE_MARKED:
+                    slug = slugify(member)
+                    brief_path = (output_dir / "projects" / f"{slug}.md").resolve()
+                    lines.append(f"- [{member}]({brief_path})")
+                else:
+                    lines.append(f"- {format_wiki_link(member)}")
+            lines.append("")
+
     link_help = (
         "Links use absolute paths so preview apps like Marked can find the files."
         if link_style == LINK_STYLE_MARKED
@@ -1272,15 +1392,16 @@ def render_index_markdown(
             "",
             f"Open briefs from the list above. {link_help}",
             "",
-            "| Project | One-line read | Current state | Similar projects |",
-            "|---|---|---|---|",
+            "| Project | One-line read | Current state | Run | Tests | Similar projects |",
+            "|---|---|---|---|---|---|",
         ]
     )
     for report in reports:
         similar = format_similar_project_links(report.similar_projects, link_style)
         lines.append(
             f"| {escape_pipes(report.name)} | {escape_pipes(report.one_liner)} | "
-            f"{escape_pipes(report.current_state)} | {escape_pipes(similar)} |"
+            f"{escape_pipes(report.current_state)} | {escape_pipes(summarize_run_hint(report))} | "
+            f"{escape_pipes(summarize_test_presence(report))} | {escape_pipes(similar)} |"
         )
     return "\n".join(lines) + "\n"
 

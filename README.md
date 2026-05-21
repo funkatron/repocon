@@ -48,6 +48,14 @@ When the run finishes, repocon offers to open `reports/index.md` in [Marked](htt
 
 By default, links between briefs use **Bear-style** `[[Note Title]]` wiki links (same pattern as infomux `store_bear`). Titles match each brief's `#` heading so [Bear.app](https://bear.app/) can jump between notes. For Marked preview with absolute file paths, pass `--link-style marked`.
 
+Export notes directly into Bear on macOS (uses [infomux](https://github.com/funkatron/infomux) `bear` helpers when installed):
+
+```bash
+uv run repocon ~/src --output ./reports --export-bear
+```
+
+Tags come from `REPOCON_BEAR_TAGS` (default `repocon,projects`) or `INFOMUX_BEAR_TAGS` if set.
+
 Limit to a few projects while iterating:
 
 ```bash
@@ -157,7 +165,6 @@ Generated reports are local working output and should generally stay out of vers
 ## Next Obvious Improvements
 
 - detect project families and shared code patterns more intelligently
-- index landing page with clearer navigation for large source trees
 - incremental rescans when only some repos changed
 
 ## How LLM enrichment works
